@@ -5,6 +5,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { TaskInput } from "@/components/TaskInput";
 import { TaskList } from "@/components/TaskList";
 import { FocusWizard } from "@/components/FocusWizard";
+import { GuestTaskDemo } from "@/components/GuestTaskDemo";
 import { motion } from "framer-motion";
 import { Hourglass, ArrowLeft, Loader2, LogIn, Brain, Target, Zap, Play, Home as HomeIcon, ListTodo, BarChart3, Briefcase, LogOut, Star } from "lucide-react";
 import { useLocation } from "wouter";
@@ -291,6 +292,9 @@ export default function Home() {
                 ))}
               </div>
             </motion.section>
+
+            {/* Guest Freedom Mode Demo */}
+            {!isAuthenticated && <GuestTaskDemo />}
           </motion.div>
         )}
 
