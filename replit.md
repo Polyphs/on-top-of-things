@@ -2,14 +2,30 @@
 
 ## Overview
 
-FocusFlow is a specialized to-do list application designed for individuals with ADHD. The core philosophy is minimal distractions and focused engagement. The app features a unique "focus mode" that guides users through coaching questions before working on tasks, helping them clarify goals, set deadlines, and connect with emotional rewards for completion.
+FocusFlow is a specialized to-do list application designed for individuals with ADHD. The core philosophy is minimal distractions and focused engagement. The app features four distinct modes to help users capture, focus on, execute, and review their tasks.
 
-Key features:
-- Minimalistic task input interface
-- Focus mode with guided coaching questions (deadline, outcome visualization, motivation)
-- Work mode displaying tasks with reflection responses in a table format
-- Task completion tracking with satisfaction reviews
-- User authentication with email OTP verification
+## Key Features
+
+### Four Modes
+1. **Freedom Mode** - Quick task capture with minimal friction. Each task has a dedicated "Focus" button to immediately start focused work.
+2. **Focus Mode** - One-task-at-a-time guided coaching wizard with questions about deadlines, outcome visualization, and motivation.
+3. **Work Mode** - Structured table view showing all pending tasks with their reflection responses for execution clarity.
+4. **Review & Learn Mode** - Analytics dashboard showing completion stats, average focus time, satisfaction ratings, and improvement tracking.
+
+### Navigation
+- Unified navigation bar visible on all screens (except landing) showing all four modes
+- Mode navigation is gated - unauthenticated users are redirected to login
+
+### Authentication
+- Email-based signup with 6-digit OTP verification
+- Login with email or profile name
+- Forgot password flow with OTP-based reset
+- Session-based authentication with secure cookie handling
+
+### Task Features
+- Focus time tracking (startedAt, completedAt, focusTimeSeconds)
+- Per-task reflections from coaching questions
+- Post-completion reviews with satisfaction ratings (1-5) and improvement notes
 
 ## User Preferences
 
