@@ -1,12 +1,17 @@
+
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl, type TaskInput } from "@shared/routes";
+import type { TaskStats } from "@shared/schema";
 
 export function useTasks() {
   return useQuery({
     queryKey: [api.tasks.list.path],
     queryFn: async () => {
       const res = await fetch(api.tasks.list.path);
-      if (!res.ok) throw new Error("Failed to fetch tasks");
+      if (!res.ok) {
+        if (res.status === 401) return [];
+        throw new Error("Failed to fetch tasks");
+      }
       return api.tasks.list.responses[200].parse(await res.json());
     },
   });
@@ -23,6 +28,28 @@ export function useTask(id: number | null) {
       if (res.status === 404) return null;
       if (!res.ok) throw new Error("Failed to fetch task");
       return api.tasks.get.responses[200].parse(await res.json());
+    },
+  });
+}
+
+export function useTaskStats() {
+  return useQuery<TaskStats>({
+    queryKey: ['/api/tasks/stats'],
+    queryFn: async () => {
+      const res = await fetch('/api/tasks/stats');
+      if (!res.ok) {
+        if (res.status === 401) {
+          return {
+            totalCompleted: 0,
+            totalPending: 0,
+            avgFocusTimeSeconds: 0,
+            avgSatisfaction: 0,
+            completedTasks: [],
+          };
+        }
+        throw new Error("Failed to fetch stats");
+      }
+      return res.json();
     },
   });
 }
@@ -80,6 +107,35 @@ export function useDeleteTask() {
   });
 }
 
+export function useStartFocus() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const url = buildUrl(api.tasks.startFocus.path, { id });
+      const res = await fetch(url, { method: 'POST' });
+      if (!res.ok) throw new Error("Failed to start focus");
+      return res.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [api.tasks.list.path] }),
+  });
+}
+
+export function useCompleteTask() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const url = buildUrl(api.tasks.complete.path, { id });
+      const res = await fetch(url, { method: 'POST' });
+      if (!res.ok) throw new Error("Failed to complete task");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [api.tasks.list.path] });
+      queryClient.invalidateQueries({ queryKey: ['/api/tasks/stats'] });
+    },
+  });
+}
+
 export function useAddReflection() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -96,6 +152,26 @@ export function useAddReflection() {
     onSuccess: (_, { taskId }) => {
       queryClient.invalidateQueries({ queryKey: [api.tasks.get.path, taskId] });
       queryClient.invalidateQueries({ queryKey: [api.tasks.list.path] });
+    },
+  });
+}
+
+export function useAddReview() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ taskId, satisfactionRating, improvements }: { taskId: number; satisfactionRating: number; improvements?: string }) => {
+      const url = buildUrl(api.tasks.addReview.path, { id: taskId });
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ satisfactionRating, improvements }),
+      });
+      if (!res.ok) throw new Error("Failed to add review");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [api.tasks.list.path] });
+      queryClient.invalidateQueries({ queryKey: ['/api/tasks/stats'] });
     },
   });
 }
