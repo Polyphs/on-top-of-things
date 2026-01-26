@@ -30,9 +30,14 @@ export async function registerRoutes(
 ): Promise<Server> {
   // Session setup
   const SessionStore = MemoryStore(session);
+  const sessionSecret = process.env.SESSION_SECRET;
+  if (!sessionSecret && process.env.NODE_ENV === "production") {
+    console.error("FATAL: SESSION_SECRET environment variable is required in production");
+    process.exit(1);
+  }
   app.use(
     session({
-      secret: process.env.SESSION_SECRET || "focusflow-secret-key",
+      secret: sessionSecret || "dev-only-secret-not-for-production",
       resave: false,
       saveUninitialized: false,
       store: new SessionStore({

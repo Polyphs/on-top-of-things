@@ -34,9 +34,9 @@ export function useTask(id: number | null) {
 
 export function useTaskStats() {
   return useQuery<TaskStats>({
-    queryKey: ['/api/tasks/stats'],
+    queryKey: [api.tasks.stats.path],
     queryFn: async () => {
-      const res = await fetch('/api/tasks/stats');
+      const res = await fetch(api.tasks.stats.path);
       if (!res.ok) {
         if (res.status === 401) {
           return {
@@ -131,7 +131,7 @@ export function useCompleteTask() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.tasks.list.path] });
-      queryClient.invalidateQueries({ queryKey: ['/api/tasks/stats'] });
+      queryClient.invalidateQueries({ queryKey: [api.tasks.stats.path] });
     },
   });
 }
@@ -171,7 +171,7 @@ export function useAddReview() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.tasks.list.path] });
-      queryClient.invalidateQueries({ queryKey: ['/api/tasks/stats'] });
+      queryClient.invalidateQueries({ queryKey: [api.tasks.stats.path] });
     },
   });
 }

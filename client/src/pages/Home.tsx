@@ -19,10 +19,19 @@ export default function Home() {
   const [mode, setMode] = useState<Mode>("landing");
   const { data: tasks, isLoading } = useTasks();
   const { data: stats } = useTaskStats();
-  const { user, isAuthenticated, logout, logoutPending } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading, logout, logoutPending } = useAuth();
   const [focusedTaskId, setFocusedTaskId] = useState<number | null>(null);
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  
+  // Gate protected modes - redirect to landing if not authenticated
+  const handleModeChange = (newMode: Mode) => {
+    if (newMode !== "landing" && !isAuthenticated) {
+      navigate("/auth");
+      return;
+    }
+    setMode(newMode);
+  };
   
   const startFocusMutation = useStartFocus();
   const completeTaskMutation = useCompleteTask();
@@ -39,11 +48,15 @@ export default function Home() {
   const focusedTask = tasks?.find(t => t.id === focusedTaskId);
 
   const startFocusMode = (taskId?: number) => {
+    if (!isAuthenticated) {
+      navigate("/auth");
+      return;
+    }
     const targetId = taskId || (pendingTasks.length > 0 ? pendingTasks[0].id : null);
     if (targetId) {
       setFocusedTaskId(targetId);
       startFocusMutation.mutate(targetId);
-      setMode("focus");
+      handleModeChange("focus");
     }
   };
 
@@ -59,7 +72,7 @@ export default function Home() {
       setFocusedTaskId(pendingTasks[0].id);
       startFocusMutation.mutate(pendingTasks[0].id);
     } else {
-      setMode("work");
+      handleModeChange("work");
     }
   };
 
@@ -67,7 +80,7 @@ export default function Home() {
     if (focusedTaskId) {
       completeTaskMutation.mutate(focusedTaskId);
     }
-    setMode("work");
+    handleModeChange("work");
   };
 
   const handleSubmitReview = async () => {
@@ -110,7 +123,7 @@ export default function Home() {
       <Button
         variant={mode === "freedom" ? "default" : "ghost"}
         size="sm"
-        onClick={() => setMode("freedom")}
+        onClick={() => handleModeChange("freedom")}
         className="rounded-full gap-1.5"
         data-testid="nav-freedom"
       >
@@ -131,7 +144,7 @@ export default function Home() {
       <Button
         variant={mode === "work" ? "default" : "ghost"}
         size="sm"
-        onClick={() => setMode("work")}
+        onClick={() => handleModeChange("work")}
         className="rounded-full gap-1.5"
         data-testid="nav-work"
       >
@@ -141,7 +154,7 @@ export default function Home() {
       <Button
         variant={mode === "review" ? "default" : "ghost"}
         size="sm"
-        onClick={() => setMode("review")}
+        onClick={() => handleModeChange("review")}
         className="rounded-full gap-1.5"
         data-testid="nav-review"
       >
@@ -226,7 +239,7 @@ export default function Home() {
               </motion.p>
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="flex justify-center gap-4 flex-wrap">
                 {isAuthenticated ? (
-                  <Button size="lg" onClick={() => setMode("freedom")} className="gap-2" data-testid="button-get-started">
+                  <Button size="lg" onClick={() => handleModeChange("freedom")} className="gap-2" data-testid="button-get-started">
                     Go to Dashboard
                   </Button>
                 ) : (
@@ -245,7 +258,7 @@ export default function Home() {
 
             <motion.section initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="py-8">
               <div className="relative rounded-2xl overflow-hidden bg-gradient-to-br from-primary/10 to-accent/10 border border-border shadow-2xl">
-                <div className="aspect-video flex items-center justify-center bg-muted/30 relative group cursor-pointer" onClick={() => isAuthenticated ? setMode("freedom") : navigate("/auth")}>
+                <div className="aspect-video flex items-center justify-center bg-muted/30 relative group cursor-pointer" onClick={() => handleModeChange("freedom")}>
                   <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
                   <div className="absolute inset-0 flex flex-col items-center justify-center text-white z-10">
                     <div className="w-20 h-20 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
