@@ -1,5 +1,5 @@
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useTasks, useTaskStats, useStartFocus, useCompleteTask, useAddReview } from "@/hooks/use-tasks";
 import { useAuth } from "@/hooks/use-auth";
 import { TaskInput } from "@/components/TaskInput";
@@ -7,12 +7,19 @@ import { TaskList } from "@/components/TaskList";
 import { FocusWizard } from "@/components/FocusWizard";
 import { GuestExperience } from "@/components/GuestExperience";
 import { motion } from "framer-motion";
-import { Hourglass, ArrowLeft, Loader2, LogIn, Brain, Target, Zap, Home as HomeIcon, ListTodo, BarChart3, Briefcase, LogOut, Star } from "lucide-react";
+import { Hourglass, ArrowLeft, Loader2, LogIn, Brain, Target, Zap, Home as HomeIcon, ListTodo, BarChart3, Briefcase, LogOut, Star, Play, Pause, Coffee, Square } from "lucide-react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
+
+interface TaskTimer {
+  startTime: number;
+  pausedAt: number | null;
+  accumulated: number;
+}
 
 type Mode = "landing" | "freedom" | "focus" | "work" | "review";
 
@@ -42,6 +49,90 @@ export default function Home() {
   const [reviewTaskId, setReviewTaskId] = useState<number | null>(null);
   const [satisfactionRating, setSatisfactionRating] = useState(0);
   const [improvements, setImprovements] = useState("");
+
+  // Timer state for Work Mode
+  const [timers, setTimers] = useState<Record<number, TaskTimer>>({});
+  const [tick, setTick] = useState(0);
+
+  // Timer tick - update every second for running timers
+  useEffect(() => {
+    const hasRunningTimer = Object.values(timers).some(t => t.pausedAt === null);
+    if (!hasRunningTimer) return;
+    
+    const interval = setInterval(() => {
+      setTick(t => t + 1);
+    }, 1000);
+    
+    return () => clearInterval(interval);
+  }, [timers]);
+
+  const getElapsedSeconds = useCallback((taskId: number): number => {
+    const timer = timers[taskId];
+    if (!timer) return 0;
+    
+    if (timer.pausedAt !== null) {
+      return timer.accumulated;
+    }
+    
+    const currentRunSeconds = Math.floor((Date.now() - timer.startTime) / 1000);
+    return timer.accumulated + currentRunSeconds;
+  }, [timers, tick]);
+
+  const formatTimer = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const startTimer = (taskId: number) => {
+    setTimers(prev => ({
+      ...prev,
+      [taskId]: {
+        startTime: Date.now(),
+        pausedAt: null,
+        accumulated: prev[taskId]?.accumulated || 0
+      }
+    }));
+  };
+
+  const pauseTimer = (taskId: number) => {
+    const timer = timers[taskId];
+    if (!timer || timer.pausedAt !== null) return;
+    
+    const currentRunSeconds = Math.floor((Date.now() - timer.startTime) / 1000);
+    setTimers(prev => ({
+      ...prev,
+      [taskId]: {
+        ...prev[taskId],
+        pausedAt: Date.now(),
+        accumulated: prev[taskId].accumulated + currentRunSeconds
+      }
+    }));
+  };
+
+  const stopTimer = (taskId: number) => {
+    setTimers(prev => {
+      const newTimers = { ...prev };
+      delete newTimers[taskId];
+      return newTimers;
+    });
+  };
+
+  const isTimerRunning = (taskId: number): boolean => {
+    const timer = timers[taskId];
+    return timer !== undefined && timer.pausedAt === null;
+  };
+
+  const isTimerPaused = (taskId: number): boolean => {
+    const timer = timers[taskId];
+    return timer !== undefined && timer.pausedAt !== null;
+  };
+
+  const getPausedDuration = (taskId: number): number => {
+    const timer = timers[taskId];
+    if (!timer || timer.pausedAt === null) return 0;
+    return Math.floor((Date.now() - timer.pausedAt) / 1000);
+  };
 
   // Derive state
   const pendingTasks = tasks?.filter(t => !t.isCompleted) || [];
@@ -77,10 +168,10 @@ export default function Home() {
     }
   };
 
+  // Save reflections and go to Work Mode WITHOUT completing the task
+  // Task completion only happens via checkbox in Work Mode
   const finishWizard = () => {
-    if (focusedTaskId) {
-      completeTaskMutation.mutate(focusedTaskId);
-    }
+    // Just transition to work mode - task completion is manual via checkbox
     handleModeChange("work");
   };
 
@@ -327,39 +418,117 @@ export default function Home() {
           <motion.div key="work" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex-grow flex flex-col">
             <div className="mb-8">
               <h1 className="text-2xl font-display font-bold text-foreground">Work Mode</h1>
-              <p className="text-muted-foreground text-sm">Execute your plan with clarity.</p>
+              <p className="text-muted-foreground text-sm">Execute your tasks. Check the box when complete.</p>
             </div>
 
-            <Card>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[700px]">
-                  <thead>
-                    <tr className="bg-muted/30 border-b border-border">
-                      <th className="text-left py-4 px-6 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Task</th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Deadline</th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Outcome</th>
-                      <th className="text-left py-4 px-6 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Motivation</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/50">
-                    {pendingTasks.map((task) => {
-                      const getReflection = (q: string) => task.reflections.find(r => r.question.includes(q))?.answer || "—";
-                      return (
-                        <tr key={task.id} className="group hover:bg-muted/10 transition-colors">
-                          <td className="py-4 px-6 font-medium text-foreground">{task.content}</td>
-                          <td className="py-4 px-6 text-sm text-muted-foreground">{getReflection("When")}</td>
-                          <td className="py-4 px-6 text-sm text-muted-foreground">{getReflection("What")}</td>
-                          <td className="py-4 px-6 text-sm text-muted-foreground">{getReflection("How")}</td>
-                        </tr>
-                      );
-                    })}
-                    {pendingTasks.length === 0 && (
-                      <tr><td colSpan={4} className="py-12 text-center text-muted-foreground">No pending tasks. Great job!</td></tr>
-                    )}
-                  </tbody>
-                </table>
+            {pendingTasks.length === 0 ? (
+              <Card>
+                <CardContent className="py-12 text-center text-muted-foreground">
+                  No pending tasks. Great job!
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-3">
+                {pendingTasks.map((task) => {
+                  const getReflection = (q: string) => task.reflections.find(r => r.question.includes(q))?.answer || "—";
+                  const elapsed = getElapsedSeconds(task.id);
+                  const running = isTimerRunning(task.id);
+                  const paused = isTimerPaused(task.id);
+                  const pausedFor = getPausedDuration(task.id);
+                  const showBreak = running && elapsed >= 480; // 8 minutes
+                  const blinkPause = paused && pausedFor >= 300; // 5 minutes
+                  
+                  return (
+                    <Card key={task.id} className="overflow-visible">
+                      <CardContent className="p-4">
+                        <div className="flex items-start gap-3">
+                          <Checkbox 
+                            checked={false}
+                            onCheckedChange={() => {
+                              completeTaskMutation.mutate(task.id);
+                              stopTimer(task.id);
+                            }}
+                            className="mt-1"
+                            data-testid={`checkbox-complete-${task.id}`}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-foreground">{task.content}</p>
+                            <div className="mt-2 text-sm text-muted-foreground grid grid-cols-1 md:grid-cols-3 gap-1">
+                              <p><span className="font-medium">Deadline:</span> {getReflection("When")}</p>
+                              <p><span className="font-medium">Outcome:</span> {getReflection("What")}</p>
+                              <p><span className="font-medium">Why:</span> {getReflection("How")}</p>
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-2 shrink-0">
+                            {(running || paused) && (
+                              <span className={`font-mono text-sm tabular-nums min-w-[50px] text-right ${running ? 'text-primary font-medium' : 'text-muted-foreground'}`}>
+                                {formatTimer(elapsed)}
+                              </span>
+                            )}
+                            
+                            {showBreak && (
+                              <div className="flex items-center gap-1 text-amber-500" title="Time for a break!">
+                                <Coffee className="w-4 h-4" />
+                              </div>
+                            )}
+                            
+                            {!running && !paused && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => startTimer(task.id)}
+                                title="Start timer"
+                                data-testid={`button-start-timer-${task.id}`}
+                              >
+                                <Play className="w-4 h-4" />
+                              </Button>
+                            )}
+                            
+                            {running && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => pauseTimer(task.id)}
+                                title="Pause timer"
+                                data-testid={`button-pause-timer-${task.id}`}
+                              >
+                                <Pause className="w-4 h-4" />
+                              </Button>
+                            )}
+                            
+                            {paused && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => startTimer(task.id)}
+                                title="Resume timer"
+                                className={blinkPause ? 'animate-pulse bg-primary/20' : ''}
+                                data-testid={`button-resume-timer-${task.id}`}
+                              >
+                                <Play className="w-4 h-4" />
+                              </Button>
+                            )}
+                            
+                            {(running || paused) && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => stopTimer(task.id)}
+                                title="Stop timer"
+                                data-testid={`button-stop-timer-${task.id}`}
+                              >
+                                <Square className="w-3.5 h-3.5" />
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
-            </Card>
+            )}
           </motion.div>
         )}
 

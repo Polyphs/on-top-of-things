@@ -1,10 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Trash2, Hourglass, Sparkles, ListTodo, Briefcase, ChevronRight, Check, ArrowLeft } from "lucide-react";
+import { Plus, Trash2, Hourglass, Sparkles, ListTodo, Briefcase, ChevronRight, Check, ArrowLeft, Play, Pause, Coffee, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useLocation } from "wouter";
 
 interface GuestTask {
@@ -19,9 +20,16 @@ interface GuestTask {
   };
 }
 
+interface TaskTimer {
+  startTime: number;
+  pausedAt: number | null;
+  accumulated: number; // seconds accumulated before current run
+}
+
 type GuestMode = "freedom" | "focus" | "work";
 
 const STORAGE_KEY = "focusflow_guest_tasks";
+const TIMER_STORAGE_KEY = "focusflow_guest_timers";
 
 export function GuestExperience() {
   const [tasks, setTasks] = useState<GuestTask[]>([]);
@@ -31,6 +39,10 @@ export function GuestExperience() {
   const [wizardStep, setWizardStep] = useState(0);
   const [wizardAnswers, setWizardAnswers] = useState({ deadline: "", outcome: "", motivation: "" });
   const [, navigate] = useLocation();
+  
+  // Timer state: tracks running timers per task
+  const [timers, setTimers] = useState<Record<string, TaskTimer>>({});
+  const [tick, setTick] = useState(0); // Force re-render for timer display
 
   const pendingTasks = tasks.filter(t => !t.isCompleted);
   const completedTasks = tasks.filter(t => t.isCompleted);
@@ -50,6 +62,106 @@ export function GuestExperience() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
   }, [tasks]);
+
+  // Load timers from localStorage
+  useEffect(() => {
+    const storedTimers = localStorage.getItem(TIMER_STORAGE_KEY);
+    if (storedTimers) {
+      try {
+        setTimers(JSON.parse(storedTimers));
+      } catch {
+        setTimers({});
+      }
+    }
+  }, []);
+
+  // Save timers to localStorage
+  useEffect(() => {
+    localStorage.setItem(TIMER_STORAGE_KEY, JSON.stringify(timers));
+  }, [timers]);
+
+  // Timer tick - update every second for running timers
+  useEffect(() => {
+    const hasRunningTimer = Object.values(timers).some(t => t.pausedAt === null);
+    if (!hasRunningTimer) return;
+    
+    const interval = setInterval(() => {
+      setTick(t => t + 1);
+    }, 1000);
+    
+    return () => clearInterval(interval);
+  }, [timers]);
+
+  // Timer helper functions
+  const getElapsedSeconds = useCallback((taskId: string): number => {
+    const timer = timers[taskId];
+    if (!timer) return 0;
+    
+    if (timer.pausedAt !== null) {
+      // Timer is paused - show accumulated time
+      return timer.accumulated;
+    }
+    
+    // Timer is running - calculate current elapsed time
+    const currentRunSeconds = Math.floor((Date.now() - timer.startTime) / 1000);
+    return timer.accumulated + currentRunSeconds;
+  }, [timers, tick]);
+
+  const formatTimer = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const startTimer = (taskId: string) => {
+    setTimers(prev => ({
+      ...prev,
+      [taskId]: {
+        startTime: Date.now(),
+        pausedAt: null,
+        accumulated: prev[taskId]?.accumulated || 0
+      }
+    }));
+  };
+
+  const pauseTimer = (taskId: string) => {
+    const timer = timers[taskId];
+    if (!timer || timer.pausedAt !== null) return;
+    
+    const currentRunSeconds = Math.floor((Date.now() - timer.startTime) / 1000);
+    setTimers(prev => ({
+      ...prev,
+      [taskId]: {
+        ...prev[taskId],
+        pausedAt: Date.now(),
+        accumulated: prev[taskId].accumulated + currentRunSeconds
+      }
+    }));
+  };
+
+  const stopTimer = (taskId: string) => {
+    setTimers(prev => {
+      const newTimers = { ...prev };
+      delete newTimers[taskId];
+      return newTimers;
+    });
+  };
+
+  const isTimerRunning = (taskId: string): boolean => {
+    const timer = timers[taskId];
+    return timer !== undefined && timer.pausedAt === null;
+  };
+
+  const isTimerPaused = (taskId: string): boolean => {
+    const timer = timers[taskId];
+    return timer !== undefined && timer.pausedAt !== null;
+  };
+
+  const getPausedDuration = (taskId: string): number => {
+    const timer = timers[taskId];
+    if (!timer || timer.pausedAt === null) return 0;
+    return Math.floor((Date.now() - timer.pausedAt) / 1000);
+  };
 
   const addTask = () => {
     if (!newTask.trim()) return;
@@ -74,17 +186,29 @@ export function GuestExperience() {
     setMode("focus");
   };
 
-  const completeTask = () => {
+  // Save reflection without completing the task (completion happens in Work Mode via checkbox)
+  const finishFocus = () => {
     if (!focusedTaskId) return;
     setTasks((prev) =>
       prev.map((t) =>
         t.id === focusedTaskId
-          ? { ...t, isCompleted: true, reflection: wizardAnswers }
+          ? { ...t, reflection: wizardAnswers }
           : t
       )
     );
     setFocusedTaskId(null);
     setMode("work");
+  };
+
+  // Complete task via checkbox in Work Mode
+  const completeTask = (taskId: string) => {
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === taskId
+          ? { ...t, isCompleted: true }
+          : t
+      )
+    );
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -314,9 +438,9 @@ export function GuestExperience() {
                         <p className="text-muted-foreground text-sm mb-6">
                           You've clarified your focus. Now go complete this task!
                         </p>
-                        <Button onClick={completeTask} className="gap-2" data-testid="button-complete-task">
-                          <Check className="w-4 h-4" />
-                          Mark Complete
+                        <Button onClick={finishFocus} className="gap-2" data-testid="button-go-to-work">
+                          <Briefcase className="w-4 h-4" />
+                          Go to Work Mode
                         </Button>
                       </CardContent>
                     </Card>
@@ -340,8 +464,8 @@ export function GuestExperience() {
           {mode === "work" && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
               <div className="mb-4">
-                <h3 className="font-medium text-foreground mb-1">Pending Tasks</h3>
-                <p className="text-sm text-muted-foreground">Tasks with reflections from focus sessions</p>
+                <h3 className="font-medium text-foreground mb-1">Work Mode</h3>
+                <p className="text-sm text-muted-foreground">Execute your tasks. Check the box when complete.</p>
               </div>
 
               {pendingTasks.length === 0 && completedTasks.length === 0 ? (
@@ -354,35 +478,104 @@ export function GuestExperience() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {pendingTasks.map((task) => (
-                    <Card key={task.id} className="overflow-hidden">
-                      <CardContent className="p-4">
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="flex-1">
-                            <p className="font-medium text-foreground">{task.content}</p>
-                            {task.reflection ? (
-                              <div className="mt-2 text-sm text-muted-foreground space-y-1">
-                                <p><span className="font-medium">Deadline:</span> {task.reflection.deadline || "Not set"}</p>
-                                <p><span className="font-medium">Outcome:</span> {task.reflection.outcome || "Not set"}</p>
-                                <p><span className="font-medium">Why:</span> {task.reflection.motivation || "Not set"}</p>
-                              </div>
-                            ) : (
-                              <p className="text-sm text-muted-foreground mt-1">No reflection yet</p>
-                            )}
+                  {pendingTasks.map((task) => {
+                    const elapsed = getElapsedSeconds(task.id);
+                    const running = isTimerRunning(task.id);
+                    const paused = isTimerPaused(task.id);
+                    const pausedFor = getPausedDuration(task.id);
+                    const showBreak = running && elapsed >= 480; // 8 minutes = 480 seconds
+                    const blinkPause = paused && pausedFor >= 300; // 5 minutes = 300 seconds
+                    
+                    return (
+                      <Card key={task.id} className="overflow-visible">
+                        <CardContent className="p-4">
+                          <div className="flex items-start gap-3">
+                            <Checkbox 
+                              checked={false}
+                              onCheckedChange={() => {
+                                completeTask(task.id);
+                                stopTimer(task.id);
+                              }}
+                              className="mt-1"
+                              data-testid={`checkbox-complete-${task.id}`}
+                            />
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium text-foreground">{task.content}</p>
+                              {task.reflection && (
+                                <div className="mt-2 text-sm text-muted-foreground space-y-0.5">
+                                  <p><span className="font-medium">Deadline:</span> {task.reflection.deadline || "Not set"}</p>
+                                  <p><span className="font-medium">Outcome:</span> {task.reflection.outcome || "Not set"}</p>
+                                </div>
+                              )}
+                            </div>
+                            
+                            <div className="flex items-center gap-2 shrink-0">
+                              {(running || paused) && (
+                                <span className={`font-mono text-sm tabular-nums min-w-[50px] text-right ${running ? 'text-primary font-medium' : 'text-muted-foreground'}`}>
+                                  {formatTimer(elapsed)}
+                                </span>
+                              )}
+                              
+                              {showBreak && (
+                                <div className="flex items-center gap-1 text-amber-500" title="Time for a break!">
+                                  <Coffee className="w-4 h-4" />
+                                </div>
+                              )}
+                              
+                              {!running && !paused && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => startTimer(task.id)}
+                                  title="Start timer"
+                                  data-testid={`button-start-timer-${task.id}`}
+                                >
+                                  <Play className="w-4 h-4" />
+                                </Button>
+                              )}
+                              
+                              {running && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => pauseTimer(task.id)}
+                                  title="Pause timer"
+                                  data-testid={`button-pause-timer-${task.id}`}
+                                >
+                                  <Pause className="w-4 h-4" />
+                                </Button>
+                              )}
+                              
+                              {paused && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => startTimer(task.id)}
+                                  title="Resume timer"
+                                  className={blinkPause ? 'animate-pulse bg-primary/20' : ''}
+                                  data-testid={`button-resume-timer-${task.id}`}
+                                >
+                                  <Play className="w-4 h-4" />
+                                </Button>
+                              )}
+                              
+                              {(running || paused) && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => stopTimer(task.id)}
+                                  title="Stop timer"
+                                  data-testid={`button-stop-timer-${task.id}`}
+                                >
+                                  <Square className="w-3.5 h-3.5" />
+                                </Button>
+                              )}
+                            </div>
                           </div>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => startFocus(task.id)}
-                            className="gap-1.5 shrink-0"
-                          >
-                            <Hourglass className="w-3.5 h-3.5" />
-                            Focus
-                          </Button>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
 
                   {completedTasks.length > 0 && (
                     <div className="mt-6 pt-4 border-t border-dashed border-border/60">
