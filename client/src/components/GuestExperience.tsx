@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Trash2, Hourglass, Sparkles, ListTodo, Briefcase, ChevronRight, Check, ArrowLeft, Play, Pause, Coffee, Square } from "lucide-react";
+import { Plus, Trash2, Hourglass, Sparkles, ListTodo, Briefcase, ChevronRight, Check, ArrowLeft, Play, Pause, Coffee, Square, BarChart3, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -26,7 +26,16 @@ interface TaskTimer {
   accumulated: number; // seconds accumulated before current run
 }
 
-type GuestMode = "freedom" | "focus" | "work";
+type GuestMode = "freedom" | "focus" | "work" | "review";
+
+interface TaskReview {
+  taskId: string;
+  satisfactionRating: number;
+  improvements: string;
+  completedAt: number;
+}
+
+const REVIEW_STORAGE_KEY = "ot2_guest_reviews";
 
 const STORAGE_KEY = "ot2_guest_tasks";
 const TIMER_STORAGE_KEY = "ot2_guest_timers";
@@ -43,6 +52,12 @@ export function GuestExperience() {
   // Timer state: tracks running timers per task
   const [timers, setTimers] = useState<Record<string, TaskTimer>>({});
   const [tick, setTick] = useState(0); // Force re-render for timer display
+
+  // Review state
+  const [reviews, setReviews] = useState<TaskReview[]>([]);
+  const [reviewTaskId, setReviewTaskId] = useState<string | null>(null);
+  const [satisfactionRating, setSatisfactionRating] = useState(0);
+  const [improvements, setImprovements] = useState("");
 
   const pendingTasks = tasks.filter(t => !t.isCompleted);
   const completedTasks = tasks.filter(t => t.isCompleted);
@@ -79,6 +94,23 @@ export function GuestExperience() {
   useEffect(() => {
     localStorage.setItem(TIMER_STORAGE_KEY, JSON.stringify(timers));
   }, [timers]);
+
+  // Load reviews from localStorage
+  useEffect(() => {
+    const storedReviews = localStorage.getItem(REVIEW_STORAGE_KEY);
+    if (storedReviews) {
+      try {
+        setReviews(JSON.parse(storedReviews));
+      } catch {
+        setReviews([]);
+      }
+    }
+  }, []);
+
+  // Save reviews to localStorage
+  useEffect(() => {
+    localStorage.setItem(REVIEW_STORAGE_KEY, JSON.stringify(reviews));
+  }, [reviews]);
 
   // Timer tick - update every second for running timers
   useEffect(() => {
@@ -209,6 +241,41 @@ export function GuestExperience() {
           : t
       )
     );
+    // Prompt for review
+    setReviewTaskId(taskId);
+    setSatisfactionRating(0);
+    setImprovements("");
+  };
+
+  // Submit review for completed task
+  const submitReview = () => {
+    if (!reviewTaskId || satisfactionRating === 0) return;
+    const review: TaskReview = {
+      taskId: reviewTaskId,
+      satisfactionRating,
+      improvements,
+      completedAt: Date.now()
+    };
+    setReviews(prev => [review, ...prev]);
+    setReviewTaskId(null);
+    setSatisfactionRating(0);
+    setImprovements("");
+  };
+
+  const skipReview = () => {
+    setReviewTaskId(null);
+    setSatisfactionRating(0);
+    setImprovements("");
+  };
+
+  // Calculate stats for Review Mode
+  const getStats = () => {
+    const totalCompleted = completedTasks.length;
+    const avgSatisfaction = reviews.length > 0 
+      ? reviews.reduce((sum, r) => sum + r.satisfactionRating, 0) / reviews.length 
+      : 0;
+    const totalFocusTime = Object.values(timers).reduce((sum, t) => sum + t.accumulated, 0);
+    return { totalCompleted, avgSatisfaction, totalFocusTime, reviewCount: reviews.length };
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -225,7 +292,7 @@ export function GuestExperience() {
   ];
 
   const ModeNav = () => (
-    <div className="flex items-center gap-1 bg-muted/50 rounded-full p-1 mb-6">
+    <div className="flex items-center gap-1 bg-muted/50 rounded-full p-1 mb-6 flex-wrap justify-center">
       <Button
         variant={mode === "freedom" ? "default" : "ghost"}
         size="sm"
@@ -256,6 +323,16 @@ export function GuestExperience() {
       >
         <Briefcase className="w-4 h-4" />
         Work
+      </Button>
+      <Button
+        variant={mode === "review" ? "default" : "ghost"}
+        size="sm"
+        onClick={() => setMode("review")}
+        className="rounded-full gap-1.5"
+        data-testid="guest-nav-review"
+      >
+        <BarChart3 className="w-4 h-4" />
+        Review
       </Button>
     </div>
   );
@@ -460,13 +537,53 @@ export function GuestExperience() {
             </div>
           )}
 
-          {/* WORK MODE */}
+          {/* WORK MODE - Table Format */}
           {mode === "work" && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
               <div className="mb-4">
                 <h3 className="font-medium text-foreground mb-1">Work Mode</h3>
                 <p className="text-sm text-muted-foreground">Execute your tasks. Check the box when complete.</p>
               </div>
+
+              {/* Review Modal */}
+              {reviewTaskId && (
+                <Card className="mb-4 border-primary/30 bg-primary/5">
+                  <CardContent className="p-4">
+                    <h4 className="font-medium mb-3">How did it go?</h4>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Rate your satisfaction with "{tasks.find(t => t.id === reviewTaskId)?.content}"
+                    </p>
+                    <div className="flex gap-1 mb-4">
+                      {[1, 2, 3, 4, 5].map((rating) => (
+                        <Button
+                          key={rating}
+                          variant={satisfactionRating === rating ? "default" : "outline"}
+                          size="icon"
+                          onClick={() => setSatisfactionRating(rating)}
+                          data-testid={`button-rating-${rating}`}
+                        >
+                          <Star className={`w-4 h-4 ${satisfactionRating >= rating ? 'fill-current' : ''}`} />
+                        </Button>
+                      ))}
+                    </div>
+                    <Textarea
+                      placeholder="What could be improved next time? (optional)"
+                      value={improvements}
+                      onChange={(e) => setImprovements(e.target.value)}
+                      className="mb-4"
+                      data-testid="input-improvements"
+                    />
+                    <div className="flex gap-2">
+                      <Button onClick={submitReview} disabled={satisfactionRating === 0} data-testid="button-submit-review">
+                        Submit Review
+                      </Button>
+                      <Button variant="ghost" onClick={skipReview} data-testid="button-skip-review">
+                        Skip
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
 
               {pendingTasks.length === 0 && completedTasks.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground">
@@ -477,105 +594,78 @@ export function GuestExperience() {
                   </Button>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {pendingTasks.map((task) => {
-                    const elapsed = getElapsedSeconds(task.id);
-                    const running = isTimerRunning(task.id);
-                    const paused = isTimerPaused(task.id);
-                    const pausedFor = getPausedDuration(task.id);
-                    const showBreak = running && elapsed >= 480; // 8 minutes = 480 seconds
-                    const blinkPause = paused && pausedFor >= 300; // 5 minutes = 300 seconds
-                    
-                    return (
-                      <Card key={task.id} className="overflow-visible">
-                        <CardContent className="p-4">
-                          <div className="flex items-start gap-3">
-                            <Checkbox 
-                              checked={false}
-                              onCheckedChange={() => {
-                                completeTask(task.id);
-                                stopTimer(task.id);
-                              }}
-                              className="mt-1"
-                              data-testid={`checkbox-complete-${task.id}`}
-                            />
-                            <div className="flex-1 min-w-0">
-                              <p className="font-medium text-foreground">{task.content}</p>
-                              {task.reflection && (
-                                <div className="mt-2 text-sm text-muted-foreground space-y-0.5">
-                                  <p><span className="font-medium">Deadline:</span> {task.reflection.deadline || "Not set"}</p>
-                                  <p><span className="font-medium">Outcome:</span> {task.reflection.outcome || "Not set"}</p>
-                                </div>
-                              )}
-                            </div>
-                            
-                            <div className="flex items-center gap-2 shrink-0">
-                              {(running || paused) && (
-                                <span className={`font-mono text-sm tabular-nums min-w-[50px] text-right ${running ? 'text-primary font-medium' : 'text-muted-foreground'}`}>
-                                  {formatTimer(elapsed)}
-                                </span>
-                              )}
-                              
-                              {showBreak && (
-                                <div className="flex items-center gap-1 text-amber-500" title="Time for a break!">
-                                  <Coffee className="w-4 h-4" />
-                                </div>
-                              )}
-                              
-                              {!running && !paused && (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => startTimer(task.id)}
-                                  title="Start timer"
-                                  data-testid={`button-start-timer-${task.id}`}
-                                >
-                                  <Play className="w-4 h-4" />
-                                </Button>
-                              )}
-                              
-                              {running && (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => pauseTimer(task.id)}
-                                  title="Pause timer"
-                                  data-testid={`button-pause-timer-${task.id}`}
-                                >
-                                  <Pause className="w-4 h-4" />
-                                </Button>
-                              )}
-                              
-                              {paused && (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => startTimer(task.id)}
-                                  title="Resume timer"
-                                  className={blinkPause ? 'animate-pulse bg-primary/20' : ''}
-                                  data-testid={`button-resume-timer-${task.id}`}
-                                >
-                                  <Play className="w-4 h-4" />
-                                </Button>
-                              )}
-                              
-                              {(running || paused) && (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => stopTimer(task.id)}
-                                  title="Stop timer"
-                                  data-testid={`button-stop-timer-${task.id}`}
-                                >
-                                  <Square className="w-3.5 h-3.5" />
-                                </Button>
-                              )}
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border">
+                        <th className="text-left py-2 px-2 font-medium text-muted-foreground w-8"></th>
+                        <th className="text-left py-2 px-2 font-medium text-muted-foreground">Task</th>
+                        <th className="text-left py-2 px-2 font-medium text-muted-foreground">Deadline</th>
+                        <th className="text-left py-2 px-2 font-medium text-muted-foreground">Outcome</th>
+                        <th className="text-left py-2 px-2 font-medium text-muted-foreground">Motivation</th>
+                        <th className="text-right py-2 px-2 font-medium text-muted-foreground">Timer</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pendingTasks.map((task) => {
+                        const elapsed = getElapsedSeconds(task.id);
+                        const running = isTimerRunning(task.id);
+                        const paused = isTimerPaused(task.id);
+                        const pausedFor = getPausedDuration(task.id);
+                        const showBreak = running && elapsed >= 480;
+                        const blinkPause = paused && pausedFor >= 300;
+                        
+                        return (
+                          <tr key={task.id} className="border-b border-border/50 hover:bg-muted/30">
+                            <td className="py-3 px-2">
+                              <Checkbox 
+                                checked={false}
+                                onCheckedChange={() => {
+                                  completeTask(task.id);
+                                  stopTimer(task.id);
+                                }}
+                                data-testid={`checkbox-complete-${task.id}`}
+                              />
+                            </td>
+                            <td className="py-3 px-2 font-medium text-foreground">{task.content}</td>
+                            <td className="py-3 px-2 text-muted-foreground">{task.reflection?.deadline || "-"}</td>
+                            <td className="py-3 px-2 text-muted-foreground max-w-[150px] truncate" title={task.reflection?.outcome}>{task.reflection?.outcome || "-"}</td>
+                            <td className="py-3 px-2 text-muted-foreground max-w-[150px] truncate" title={task.reflection?.motivation}>{task.reflection?.motivation || "-"}</td>
+                            <td className="py-3 px-2">
+                              <div className="flex items-center justify-end gap-1">
+                                {(running || paused) && (
+                                  <span className={`font-mono text-xs tabular-nums ${running ? 'text-primary font-medium' : 'text-muted-foreground'}`}>
+                                    {formatTimer(elapsed)}
+                                  </span>
+                                )}
+                                {showBreak && <Coffee className="w-3.5 h-3.5 text-amber-500" />}
+                                {!running && !paused && (
+                                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => startTimer(task.id)} data-testid={`button-start-timer-${task.id}`}>
+                                    <Play className="w-3.5 h-3.5" />
+                                  </Button>
+                                )}
+                                {running && (
+                                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => pauseTimer(task.id)} data-testid={`button-pause-timer-${task.id}`}>
+                                    <Pause className="w-3.5 h-3.5" />
+                                  </Button>
+                                )}
+                                {paused && (
+                                  <Button variant="ghost" size="icon" className={`h-7 w-7 ${blinkPause ? 'animate-pulse bg-primary/20' : ''}`} onClick={() => startTimer(task.id)} data-testid={`button-resume-timer-${task.id}`}>
+                                    <Play className="w-3.5 h-3.5" />
+                                  </Button>
+                                )}
+                                {(running || paused) && (
+                                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => stopTimer(task.id)} data-testid={`button-stop-timer-${task.id}`}>
+                                    <Square className="w-3 h-3" />
+                                  </Button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
 
                   {completedTasks.length > 0 && (
                     <div className="mt-6 pt-4 border-t border-dashed border-border/60">
@@ -587,6 +677,84 @@ export function GuestExperience() {
                       ))}
                     </div>
                   )}
+                </div>
+              )}
+            </motion.div>
+          )}
+
+          {/* REVIEW MODE */}
+          {mode === "review" && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <div className="mb-6">
+                <h3 className="font-medium text-foreground mb-1">Review & Learn Mode</h3>
+                <p className="text-sm text-muted-foreground">Track your progress and learn from your patterns.</p>
+              </div>
+
+              {(() => {
+                const stats = getStats();
+                return (
+                  <div className="grid grid-cols-2 gap-4 mb-6">
+                    <Card>
+                      <CardContent className="p-4 text-center">
+                        <div className="text-3xl font-bold text-primary">{stats.totalCompleted}</div>
+                        <div className="text-sm text-muted-foreground">Tasks Completed</div>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="p-4 text-center">
+                        <div className="text-3xl font-bold text-primary flex items-center justify-center gap-1">
+                          {stats.avgSatisfaction.toFixed(1)}
+                          <Star className="w-5 h-5 fill-primary" />
+                        </div>
+                        <div className="text-sm text-muted-foreground">Avg Satisfaction</div>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="p-4 text-center">
+                        <div className="text-3xl font-bold text-primary">{stats.reviewCount}</div>
+                        <div className="text-sm text-muted-foreground">Reviews Submitted</div>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="p-4 text-center">
+                        <div className="text-3xl font-bold text-primary">{pendingTasks.length}</div>
+                        <div className="text-sm text-muted-foreground">Tasks Pending</div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                );
+              })()}
+
+              {reviews.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <BarChart3 className="w-8 h-8 mx-auto mb-3 opacity-40" />
+                  <p className="text-sm">Complete tasks and submit reviews to see your progress</p>
+                </div>
+              ) : (
+                <div>
+                  <h4 className="font-medium text-foreground mb-3">Recent Reviews</h4>
+                  <div className="space-y-2">
+                    {reviews.slice(0, 5).map((review, idx) => {
+                      const task = tasks.find(t => t.id === review.taskId);
+                      return (
+                        <Card key={idx}>
+                          <CardContent className="p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-medium truncate">{task?.content || "Unknown task"}</span>
+                              <div className="flex items-center gap-0.5 shrink-0">
+                                {[1, 2, 3, 4, 5].map((star) => (
+                                  <Star key={star} className={`w-3.5 h-3.5 ${review.satisfactionRating >= star ? 'text-primary fill-primary' : 'text-muted-foreground'}`} />
+                                ))}
+                              </div>
+                            </div>
+                            {review.improvements && (
+                              <p className="text-xs text-muted-foreground mt-1">{review.improvements}</p>
+                            )}
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </motion.div>

@@ -6,7 +6,7 @@ import { TaskInput } from "@/components/TaskInput";
 import { TaskList } from "@/components/TaskList";
 import { FocusWizard } from "@/components/FocusWizard";
 import { GuestExperience } from "@/components/GuestExperience";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { Hourglass, ArrowLeft, Loader2, LogIn, Brain, Target, Zap, Home as HomeIcon, ListTodo, BarChart3, Briefcase, LogOut, Star, Play, Pause, Coffee, Square } from "lucide-react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -23,8 +23,31 @@ interface TaskTimer {
 
 type Mode = "landing" | "freedom" | "focus" | "work" | "review";
 
+const T_WORDS = [
+  "Things",
+  "Tasks", 
+  "Time",
+  "Thoughts",
+  "Targets",
+  "Triumphs",
+  "Todos",
+  "Tactics",
+  "Tracks",
+  "Traction"
+];
+
 export default function Home() {
   const [mode, setMode] = useState<Mode>("landing");
+  const [tWordIndex, setTWordIndex] = useState(0);
+  
+  // Rotate T-words every 2 seconds
+  useEffect(() => {
+    if (mode !== "landing") return;
+    const interval = setInterval(() => {
+      setTWordIndex(prev => (prev + 1) % T_WORDS.length);
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [mode]);
   const { data: tasks, isLoading } = useTasks();
   const { data: stats } = useTaskStats();
   const { user, isAuthenticated, isLoading: authLoading, logout, logoutPending } = useAuth();
@@ -325,7 +348,22 @@ export default function Home() {
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex-grow flex flex-col">
             <section className="py-16 text-center">
               <motion.h1 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="text-4xl md:text-5xl font-display font-bold text-foreground mb-4">
-                On Top Of Things <span className="text-primary">OT<sup>2</sup></span>
+                On Top Of{" "}
+                <span className="inline-block min-w-[140px] md:min-w-[180px]">
+                  <AnimatePresence mode="wait">
+                    <motion.span
+                      key={T_WORDS[tWordIndex]}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -20 }}
+                      transition={{ duration: 0.3 }}
+                      className="inline-block text-primary"
+                    >
+                      {T_WORDS[tWordIndex]}
+                    </motion.span>
+                  </AnimatePresence>
+                </span>
+                {" "}<span className="text-primary">OT<sup>2</sup></span>
               </motion.h1>
               <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="text-lg text-muted-foreground max-w-xl mx-auto mb-8">
                 Designed for How Your Brain Works
