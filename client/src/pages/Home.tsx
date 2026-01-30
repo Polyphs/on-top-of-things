@@ -5,9 +5,9 @@ import { useAuth } from "@/hooks/use-auth";
 import { TaskInput } from "@/components/TaskInput";
 import { TaskList } from "@/components/TaskList";
 import { FocusWizard } from "@/components/FocusWizard";
-import { GuestTaskDemo } from "@/components/GuestTaskDemo";
+import { GuestExperience } from "@/components/GuestExperience";
 import { motion } from "framer-motion";
-import { Hourglass, ArrowLeft, Loader2, LogIn, Brain, Target, Zap, Play, Home as HomeIcon, ListTodo, BarChart3, Briefcase, LogOut, Star } from "lucide-react";
+import { Hourglass, ArrowLeft, Loader2, LogIn, Brain, Target, Zap, Home as HomeIcon, ListTodo, BarChart3, Briefcase, LogOut, Star } from "lucide-react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -257,32 +257,11 @@ export default function Home() {
               </motion.div>
             </section>
 
-            <motion.section initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="py-8">
-              <div className="relative rounded-2xl overflow-hidden bg-gradient-to-br from-primary/10 to-accent/10 border border-border shadow-2xl">
-                <div className="aspect-video flex items-center justify-center bg-muted/30 relative group cursor-pointer" onClick={() => handleModeChange("freedom")}>
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
-                  <div className="absolute inset-0 flex flex-col items-center justify-center text-white z-10">
-                    <div className="w-20 h-20 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                      <Play className="w-8 h-8 text-white ml-1" />
-                    </div>
-                    <p className="text-lg font-medium">See FocusFlow in Action</p>
-                    <p className="text-sm text-white/70 mt-1">Click to try the app</p>
-                  </div>
-                  <div className="w-full h-full bg-gradient-to-br from-primary/20 via-background to-accent/20 flex items-center justify-center">
-                    <div className="text-center p-8">
-                      <Hourglass className="w-16 h-16 text-primary/40 mx-auto mb-4" />
-                      <div className="text-muted-foreground/60 text-sm">App Demo Preview</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </motion.section>
-
-            <motion.section initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }} className="py-16">
+            <motion.section initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="py-16">
               <h2 className="text-2xl font-display font-bold text-center mb-12">Designed for How Your Brain Works</h2>
               <div className="grid md:grid-cols-3 gap-8">
                 {features.map((feature, i) => (
-                  <motion.div key={feature.title} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 + i * 0.1 }} className="p-6 rounded-2xl bg-white dark:bg-muted/20 border border-border/50 shadow-sm hover:shadow-md transition-shadow">
+                  <motion.div key={feature.title} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 + i * 0.1 }} className="p-6 rounded-2xl bg-white dark:bg-muted/20 border border-border/50 shadow-sm hover:shadow-md transition-shadow">
                     <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mb-4">
                       <feature.icon className="w-6 h-6 text-primary" />
                     </div>
@@ -293,8 +272,8 @@ export default function Home() {
               </div>
             </motion.section>
 
-            {/* Guest Freedom Mode Demo */}
-            {!isAuthenticated && <GuestTaskDemo />}
+            {/* Guest Full Experience Demo */}
+            {!isAuthenticated && <GuestExperience />}
           </motion.div>
         )}
 

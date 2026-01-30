@@ -44,7 +44,7 @@ export async function sendOtpEmail(to: string, code: string, type: 'signup' | 'f
 
   try {
     const { error } = await resend.emails.send({
-      from: 'FocusFlow <onboarding@resend.dev>',
+      from: 'FocusFlow <noreply@systems.algai.app>',
       to: [to],
       subject,
       html,
