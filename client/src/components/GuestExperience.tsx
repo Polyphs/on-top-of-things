@@ -28,8 +28,8 @@ interface TaskTimer {
 
 type GuestMode = "freedom" | "focus" | "work";
 
-const STORAGE_KEY = "focusflow_guest_tasks";
-const TIMER_STORAGE_KEY = "focusflow_guest_timers";
+const STORAGE_KEY = "ot2_guest_tasks";
+const TIMER_STORAGE_KEY = "ot2_guest_timers";
 
 export function GuestExperience() {
   const [tasks, setTasks] = useState<GuestTask[]>([]);

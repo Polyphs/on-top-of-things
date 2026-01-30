@@ -204,9 +204,10 @@ export default function Home() {
   };
 
   const features = [
-    { icon: Brain, title: "Focus Mode", description: "One task at a time. Coaching questions help you visualize success." },
     { icon: Target, title: "Zero Distractions", description: "Minimalist interface designed specifically for ADHD minds." },
-    { icon: Zap, title: "Quick Capture", description: "Jot down ideas instantly before they slip away." }
+    { icon: Zap, title: "Multi Task Focus", description: "Run multiple timers simultaneously. Work on several tasks without losing track." },
+    { icon: Brain, title: "Respect for Emotions", description: "Coaching questions in Focus Mode help you visualize success. Review Mode captures satisfaction." },
+    { icon: Briefcase, title: "Visualize Work in Context", description: "Work Mode shows your tasks with deadlines, outcomes, and motivations all in one view." },
   ];
 
   // Navigation component
@@ -277,7 +278,7 @@ export default function Home() {
         <div className="max-w-5xl mx-auto px-4 py-3 flex justify-between items-center gap-4">
           <div className="flex items-center gap-2 cursor-pointer" onClick={() => setMode("landing")}>
             <Hourglass className="w-5 h-5 text-primary" />
-            <span className="font-display font-bold text-lg">FocusFlow</span>
+            <span className="font-display font-bold text-lg">OT<sup className="text-xs">2</sup></span>
           </div>
           
           {/* Mode Navigation - only show when authenticated and not on landing */}
@@ -324,10 +325,10 @@ export default function Home() {
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex-grow flex flex-col">
             <section className="py-16 text-center">
               <motion.h1 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="text-4xl md:text-5xl font-display font-bold text-foreground mb-4">
-                Focus Your ADHD Mind
+                On Top Of Things <span className="text-primary">OT<sup>2</sup></span>
               </motion.h1>
               <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="text-lg text-muted-foreground max-w-xl mx-auto mb-8">
-                A to-do list that works with your brain, not against it. One task at a time. Zero distractions.
+                Designed for How Your Brain Works
               </motion.p>
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="flex justify-center gap-4 flex-wrap">
                 {isAuthenticated ? (
@@ -335,22 +336,17 @@ export default function Home() {
                     Go to Dashboard
                   </Button>
                 ) : (
-                  <>
-                    <Button size="lg" onClick={() => navigate("/auth")} className="gap-2" data-testid="button-get-started">
-                      Get Started Free
-                    </Button>
-                    <Button size="lg" variant="outline" onClick={() => navigate("/auth")} className="gap-2" data-testid="button-login-hero">
-                      <LogIn className="w-4 h-4" />
-                      Login
-                    </Button>
-                  </>
+                  <Button size="lg" onClick={() => navigate("/auth")} className="gap-2" data-testid="button-login-hero">
+                    <LogIn className="w-4 h-4" />
+                    Login
+                  </Button>
                 )}
               </motion.div>
             </section>
 
             <motion.section initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="py-16">
-              <h2 className="text-2xl font-display font-bold text-center mb-12">Designed for How Your Brain Works</h2>
-              <div className="grid md:grid-cols-3 gap-8">
+              <h2 className="text-2xl font-display font-bold text-center mb-12">Why OT² Works</h2>
+              <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
                 {features.map((feature, i) => (
                   <motion.div key={feature.title} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 + i * 0.1 }} className="p-6 rounded-2xl bg-white dark:bg-muted/20 border border-border/50 shadow-sm hover:shadow-md transition-shadow">
                     <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mb-4">
@@ -360,6 +356,62 @@ export default function Home() {
                     <p className="text-muted-foreground text-sm">{feature.description}</p>
                   </motion.div>
                 ))}
+              </div>
+            </motion.section>
+
+            {/* 4 Systemic Modes Section */}
+            <motion.section initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }} className="py-12">
+              <h2 className="text-2xl font-display font-bold text-center mb-8">4 Systemic Modes</h2>
+              <p className="text-muted-foreground text-center mb-12 max-w-2xl mx-auto">A progressive workflow designed to take you from idea to completion</p>
+              
+              <div className="flex flex-col md:flex-row items-center justify-center gap-4 md:gap-0">
+                {/* Freedom Mode */}
+                <div className="flex flex-col items-center text-center p-4 min-w-[140px]">
+                  <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-3">
+                    <ListTodo className="w-7 h-7 text-primary" />
+                  </div>
+                  <h4 className="font-semibold text-sm">Freedom Mode</h4>
+                  <p className="text-xs text-muted-foreground mt-1">Capture ideas</p>
+                </div>
+                
+                {/* Arrow */}
+                <div className="hidden md:flex items-center text-muted-foreground/40 text-2xl px-2">→</div>
+                <div className="md:hidden text-muted-foreground/40 text-2xl py-1">↓</div>
+                
+                {/* Focus Mode */}
+                <div className="flex flex-col items-center text-center p-4 min-w-[140px]">
+                  <div className="w-14 h-14 rounded-full bg-accent/10 flex items-center justify-center mb-3">
+                    <Hourglass className="w-7 h-7 text-accent" />
+                  </div>
+                  <h4 className="font-semibold text-sm">Focus Mode</h4>
+                  <p className="text-xs text-muted-foreground mt-1">One task coaching</p>
+                </div>
+                
+                {/* Arrow */}
+                <div className="hidden md:flex items-center text-muted-foreground/40 text-2xl px-2">→</div>
+                <div className="md:hidden text-muted-foreground/40 text-2xl py-1">↓</div>
+                
+                {/* Visual Work Mode */}
+                <div className="flex flex-col items-center text-center p-4 min-w-[140px]">
+                  <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-3">
+                    <Briefcase className="w-7 h-7 text-primary" />
+                  </div>
+                  <h4 className="font-semibold text-sm">Visual Work Mode</h4>
+                  <p className="text-xs text-muted-foreground mt-1">Execute with context</p>
+                </div>
+                
+                {/* Arrow */}
+                <div className="hidden md:flex items-center text-muted-foreground/40 text-2xl px-2">→</div>
+                <div className="md:hidden text-muted-foreground/40 text-2xl py-1">↓</div>
+                
+                {/* Review Mode */}
+                <div className="flex flex-col items-center text-center p-4 min-w-[140px]">
+                  <div className="w-14 h-14 rounded-full bg-accent/10 flex items-center justify-center mb-3">
+                    <BarChart3 className="w-7 h-7 text-accent" />
+                  </div>
+                  <h4 className="font-semibold text-sm">Review Mode</h4>
+                  <p className="text-xs text-muted-foreground mt-1">Learn & improve</p>
+                </div>
               </div>
             </motion.section>
 

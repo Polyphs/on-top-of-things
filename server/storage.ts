@@ -30,8 +30,9 @@ export interface IStorage {
   updatePassword(email: string, hashedPassword: string): Promise<User>;
 
   // OTP
-  createOtp(email: string, code: string, type: string): Promise<void>;
+  createOtp(email: string, code: string, type: string, signupData?: string): Promise<void>;
   verifyOtp(email: string, code: string, type: string): Promise<boolean>;
+  getOtpSignupData(email: string, type: string): Promise<string | null>;
   deleteOtps(email: string, type: string): Promise<void>;
 
   // Tasks
@@ -91,7 +92,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // === OTP ===
-  async createOtp(email: string, code: string, type: string): Promise<void> {
+  async createOtp(email: string, code: string, type: string, signupData?: string): Promise<void> {
     // Delete existing OTPs for this email and type
     await db.delete(otpCodes).where(
       and(eq(otpCodes.email, email.toLowerCase()), eq(otpCodes.type, type))
@@ -103,6 +104,7 @@ export class DatabaseStorage implements IStorage {
       email: email.toLowerCase(),
       code,
       type,
+      signupData: signupData || null,
       expiresAt,
     });
   }
@@ -117,6 +119,17 @@ export class DatabaseStorage implements IStorage {
       )
     );
     return !!otp;
+  }
+
+  async getOtpSignupData(email: string, type: string): Promise<string | null> {
+    const [otp] = await db.select().from(otpCodes).where(
+      and(
+        eq(otpCodes.email, email.toLowerCase()),
+        eq(otpCodes.type, type),
+        gt(otpCodes.expiresAt, new Date())
+      )
+    );
+    return otp?.signupData || null;
   }
 
   async deleteOtps(email: string, type: string): Promise<void> {

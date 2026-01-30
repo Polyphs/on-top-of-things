@@ -57,28 +57,28 @@ export async function registerRoutes(
     try {
       const input = api.auth.signup.input.parse(req.body);
       
-      // Check if email exists
+      // Check if email already exists (verified user)
       const existingEmail = await storage.getUserByEmail(input.email);
-      if (existingEmail) {
+      if (existingEmail && existingEmail.isVerified) {
         return res.status(400).json({ message: "Email already registered" });
       }
 
       // Check if profile name exists
       const existingProfile = await storage.getUserByProfileName(input.profileName);
-      if (existingProfile) {
+      if (existingProfile && existingProfile.isVerified) {
         return res.status(400).json({ message: "Profile name already taken" });
       }
 
-      // Create user (unverified)
-      await storage.createUser({
+      // Store signup data with OTP (NOT creating user yet)
+      const signupData = JSON.stringify({
         email: input.email.toLowerCase(),
         profileName: input.profileName,
         password: input.password,
       });
 
-      // Generate and send OTP
+      // Generate and send OTP with signup data
       const otp = generateOtp();
-      await storage.createOtp(input.email, otp, "signup");
+      await storage.createOtp(input.email, otp, "signup", signupData);
       await sendOtpEmail(input.email, otp, "signup");
 
       res.status(201).json({ message: "Verification code sent to your email" });
@@ -102,13 +102,41 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Invalid or expired verification code" });
       }
 
-      // Verify user and log them in
-      const user = await storage.verifyUser(input.email);
+      // Get the stored signup data
+      const signupDataStr = await storage.getOtpSignupData(input.email, "signup");
+      if (!signupDataStr) {
+        return res.status(400).json({ message: "Signup data not found. Please try again." });
+      }
+
+      const signupData = JSON.parse(signupDataStr);
+
+      // Check again if email/profile are available (in case of race condition)
+      const existingEmail = await storage.getUserByEmail(signupData.email);
+      if (existingEmail) {
+        await storage.deleteOtps(input.email, "signup");
+        return res.status(400).json({ message: "Email already registered" });
+      }
+
+      const existingProfile = await storage.getUserByProfileName(signupData.profileName);
+      if (existingProfile) {
+        await storage.deleteOtps(input.email, "signup");
+        return res.status(400).json({ message: "Profile name already taken" });
+      }
+
+      // NOW create the user (after OTP is verified)
+      const user = await storage.createUser({
+        email: signupData.email,
+        profileName: signupData.profileName,
+        password: signupData.password,
+      });
+
+      // Mark user as verified and delete OTP
+      const verifiedUser = await storage.verifyUser(signupData.email);
       await storage.deleteOtps(input.email, "signup");
       
-      req.session.userId = user.id;
+      req.session.userId = verifiedUser.id;
       
-      const { password, ...userWithoutPassword } = user;
+      const { password, ...userWithoutPassword } = verifiedUser;
       res.json(userWithoutPassword);
     } catch (err) {
       if (err instanceof z.ZodError) {

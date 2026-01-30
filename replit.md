@@ -1,15 +1,15 @@
-# FocusFlow - ADHD-Focused Task Management App
+# On Top Of Things (OT²) - ADHD-Focused Task Management App
 
 ## Overview
 
-FocusFlow is a specialized to-do list application designed for individuals with ADHD. The core philosophy is minimal distractions and focused engagement. The app features four distinct modes to help users capture, focus on, execute, and review their tasks.
+OT² (pronounced "OT square") is a specialized to-do list application designed for individuals with ADHD. The tagline is "Designed for How Your Brain Works". The core philosophy is minimal distractions and focused engagement. The app features four distinct modes to help users capture, focus on, execute, and review their tasks.
 
 ## Key Features
 
 ### Four Modes
 1. **Freedom Mode** - Quick task capture with minimal friction. Each task has a dedicated "Focus" button to immediately start focused work.
 2. **Focus Mode** - One-task-at-a-time guided coaching wizard with questions about deadlines, outcome visualization, and motivation.
-3. **Work Mode** - Structured table view showing all pending tasks with their reflection responses for execution clarity.
+3. **Work Mode** - Card-based view with checkboxes for task completion, per-task timers (start/pause/stop), and reflection responses for execution clarity. Multi-task timers allow working on several tasks simultaneously.
 4. **Review & Learn Mode** - Analytics dashboard showing completion stats, average focus time, satisfaction ratings, and improvement tracking.
 
 ### Navigation
@@ -18,14 +18,20 @@ FocusFlow is a specialized to-do list application designed for individuals with 
 
 ### Authentication
 - Email-based signup with 6-digit OTP verification
+- Users are ONLY added to database after OTP validation (not on signup form submission)
 - Login with email or profile name
 - Forgot password flow with OTP-based reset
 - Session-based authentication with secure cookie handling
+- Guest mode with full localStorage-based experience (no login required to try the app)
 
 ### Task Features
 - Focus time tracking (startedAt, completedAt, focusTimeSeconds)
 - Per-task reflections from coaching questions
+- Per-task timers with start/pause/stop controls (multiple can run simultaneously)
+- Break reminder icon after 8 minutes of running timer
+- Blinking pause button after 5 minutes of pause
 - Post-completion reviews with satisfaction ratings (1-5) and improvement notes
+- Task completion only via checkbox in Work Mode (Focus Mode saves reflections only)
 
 ## User Preferences
 

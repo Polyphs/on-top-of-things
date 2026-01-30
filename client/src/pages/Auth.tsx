@@ -57,7 +57,7 @@ export default function Auth() {
     e.preventDefault();
     try {
       await verifyOtp({ email, code: otpCode });
-      toast({ title: "Email verified! Welcome to FocusFlow" });
+      toast({ title: "Email verified! Welcome to OT²" });
       navigate("/");
     } catch (err: any) {
       toast({ title: err.message || "Verification failed", variant: "destructive" });
@@ -124,7 +124,7 @@ export default function Auth() {
       >
         <div className="flex items-center justify-center gap-2 mb-8">
           <Hourglass className="w-8 h-8 text-primary" />
-          <span className="font-display font-bold text-2xl">FocusFlow</span>
+          <span className="font-display font-bold text-2xl">OT<sup className="text-base">2</sup></span>
         </div>
 
         <Card>
@@ -138,7 +138,7 @@ export default function Auth() {
             </CardTitle>
             <CardDescription>
               {mode === "login" && "Sign in with your email or profile name"}
-              {mode === "signup" && "Start your focus journey today"}
+              {mode === "signup" && "Join OT² today"}
               {mode === "verify-otp" && "Enter the 6-digit code sent to your email"}
               {mode === "forgot-password" && "We'll send you a reset code"}
               {mode === "reset-password" && "Enter the code and your new password"}
@@ -180,25 +180,28 @@ export default function Auth() {
                     />
                   </div>
                 </div>
-                <Button type="submit" className="w-full" disabled={loginPending} data-testid="button-login">
-                  {loginPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Sign In"}
-                </Button>
-                <div className="flex justify-between text-sm">
+                <div className="flex gap-3">
+                  <Button type="submit" className="flex-1" disabled={loginPending} data-testid="button-login">
+                    {loginPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Sign In"}
+                  </Button>
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    className="flex-1" 
+                    onClick={() => setMode("signup")}
+                    data-testid="link-signup"
+                  >
+                    Create Account
+                  </Button>
+                </div>
+                <div className="text-center text-sm">
                   <button
                     type="button"
                     onClick={() => setMode("forgot-password")}
-                    className="text-primary hover:underline"
+                    className="text-muted-foreground hover:text-primary hover:underline"
                     data-testid="link-forgot-password"
                   >
                     Forgot password?
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setMode("signup")}
-                    className="text-primary hover:underline"
-                    data-testid="link-signup"
-                  >
-                    Create account
                   </button>
                 </div>
               </form>

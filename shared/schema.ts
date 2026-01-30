@@ -20,6 +20,7 @@ export const otpCodes = pgTable("otp_codes", {
   email: text("email").notNull(),
   code: text("code").notNull(),
   type: text("type").notNull(), // 'signup' | 'forgot_password'
+  signupData: text("signup_data"), // JSON string for storing pending signup data
   expiresAt: timestamp("expires_at").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });
