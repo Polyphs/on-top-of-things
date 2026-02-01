@@ -35,6 +35,12 @@ export async function registerRoutes(
     console.error("FATAL: SESSION_SECRET environment variable is required in production");
     process.exit(1);
   }
+  
+  // Trust proxy in production (required for secure cookies behind Replit's proxy)
+  if (process.env.NODE_ENV === "production") {
+    app.set("trust proxy", 1);
+  }
+  
   app.use(
     session({
       secret: sessionSecret || "dev-only-secret-not-for-production",
@@ -46,6 +52,7 @@ export async function registerRoutes(
       cookie: {
         secure: process.env.NODE_ENV === "production",
         httpOnly: true,
+        sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       },
     })
