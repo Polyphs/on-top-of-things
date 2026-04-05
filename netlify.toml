@@ -1,11 +1,45 @@
-[build]
-  command = "npm run build"
-  publish = "dist"
+# ============================================================================
+# Netlify configuration for OT² Investor Preview
+# Deployed at: algai.app/ot2/
+# ============================================================================
 
+[build]
+  command   = "npm run build"
+  publish   = "dist"
+
+# ── Redirect the site root to the app ──────────────────────────────────────
 [[redirects]]
-  from = "/*"
-  to = "/index.html"
+  from   = "/"
+  to     = "/ot2/"
+  status = 302   # temporary — change to 301 when you go public with a real landing page
+
+# ── SPA routing: any /ot2/* path serves the React app ──────────────────────
+# Without this, refreshing on any sub-route returns a 404 from Netlify's CDN
+[[redirects]]
+  from   = "/ot2/*"
+  to     = "/ot2/index.html"
   status = 200
 
-[build.environment]
-  NODE_VERSION = "20"
+# ── Security headers ────────────────────────────────────────────────────────
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # Prevent the page from being embedded in an iframe (clickjacking)
+    X-Frame-Options          = "DENY"
+    # Prevent MIME-type sniffing
+    X-Content-Type-Options   = "nosniff"
+    # Don't send referrer headers outside the site
+    Referrer-Policy          = "no-referrer"
+    # Explicitly tell search engines: do not index, do not follow
+    X-Robots-Tag             = "noindex, nofollow"
+
+# Cache immutable assets aggressively, HTML never
+[[headers]]
+  for = "/ot2/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/ot2/index.html"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
