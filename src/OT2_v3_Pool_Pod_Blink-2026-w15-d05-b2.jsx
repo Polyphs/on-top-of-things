@@ -1,7 +1,44 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 // ============================================================================
-// OT² v3 — Pool · Pod · Blink Edition
+// MOCK AUTH HOOK (standalone version - no external dependencies)
+// ============================================================================
+const useAuth = () => {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(false);
+  
+  const signUp = async (email, password, profileName) => {
+    setLoading(true);
+    // Mock signup - in production this would use Supabase
+    await new Promise(r => setTimeout(r, 500));
+    setUser({ email, user_metadata: { profile_name: profileName } });
+    setLoading(false);
+    return { user: { email } };
+  };
+  
+  const signIn = async (email, password) => {
+    setLoading(true);
+    await new Promise(r => setTimeout(r, 500));
+    // Demo credentials
+    if (email === 'demo@ot2.app' && password === 'demo123') {
+      setUser({ email, user_metadata: { profile_name: 'DemoUser' } });
+      setLoading(false);
+      return { user: { email } };
+    }
+    setLoading(false);
+    throw new Error('Invalid credentials');
+  };
+  
+  const signOut = async () => {
+    setUser(null);
+  };
+  
+  return { user, loading, signUp, signIn, signOut };
+};
+
+// ============================================================================
+// OT² v3 — Pool · Pod · Wave Edition
+// BASELINE: 2026-W15-3
 // Extends OT2_Complete-2.jsx with three new task organisation primitives
 // ============================================================================
 
@@ -41,8 +78,6 @@ const RELATIONSHIP_TYPES = [
 ];
 
 // === POD TYPES ===
-// annual_dates: each task in the pod gets its own specific MM-DD date (birthdays, anniversaries, bill payments)
-// recurring:    the pod has a shared recurrence schedule + tracker fields (habits, exercise, routines)
 const POD_TYPES = [
   { key: 'annual_dates', label: '📅 Annual Dates', desc: 'Each task gets its own specific date in the year — e.g. Birthdays, Anniversaries, Bill payments' },
   { key: 'recurring',    label: '🔁 Recurring Schedule', desc: 'All tasks share a repeating schedule — e.g. Daily exercise, Weekly check-ins, Monthly targets' },
@@ -222,6 +257,11 @@ const Icons = {
   Feather: ({ className = "w-4 h-4" }) => (<svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"/><line x1="16" y1="8" x2="2" y2="22"/><line x1="17.5" y1="15" x2="9" y2="15"/></svg>),
   X: ({ className = "w-4 h-4" }) => (<svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>),
   Edit: ({ className = "w-4 h-4" }) => (<svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>),
+  Bold: ({ className = "w-4 h-4" }) => (<svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/><path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/></svg>),
+  Italic: ({ className = "w-4 h-4" }) => (<svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="4" x2="10" y2="4"/><line x1="14" y1="20" x2="5" y2="20"/><line x1="15" y1="4" x2="9" y2="20"/></svg>),
+  List: ({ className = "w-4 h-4" }) => (<svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>),
+  GitBranch: ({ className = "w-4 h-4" }) => (<svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>),
+  RotateCcw: ({ className = "w-4 h-4" }) => (<svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>),
 };
 
 // ============================================================================
@@ -231,14 +271,13 @@ export default function OT2App() {
   const [page, setPage] = useState('home');
   const [tWordIndex, setTWordIndex] = useState(0);
 
-  // Auth
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [user, setUser] = useState(null);
+  // Auth — now powered by Supabase via useAuth hook
+  const { user, loading: authLoading, signUp, signIn, signOut } = useAuth();
+  const isAuthenticated = !!user;
   const [authMode, setAuthMode] = useState('login');
-  const [authForm, setAuthForm] = useState({ email: '', profileName: '', password: '', confirmPassword: '', otpCode: '', newPassword: '' });
-  const [authLoading, setAuthLoading] = useState(false);
+  const [authForm, setAuthForm] = useState({ email: '', profileName: '', password: '', confirmPassword: '' });
   const [authError, setAuthError] = useState('');
-
+  
   // Core State
   const [guestMode, setGuestMode] = useState('freedom');
   const [tasks, setTasks] = useState([]);
@@ -249,7 +288,7 @@ export default function OT2App() {
   // NEW: Pool / Pod / Blink state
   const [pools, setPools] = useState([]);
   const [pods, setPods] = useState([]);
-  const [podLogs, setPodLogs] = useState({}); // { podId_taskId_date: { status, trackerValues } }
+  const [podLogs, setPodLogs] = useState({});
 
   // Freedom Mode
   const [newTask, setNewTask] = useState('');
@@ -258,13 +297,12 @@ export default function OT2App() {
   const [focusedTaskId, setFocusedTaskId] = useState(null);
   const [wizardStep, setWizardStep] = useState(0);
   const [wizardAnswers, setWizardAnswers] = useState({});
-  // NEW: Focus mode task-type selection
-  const [focusTaskType, setFocusTaskType] = useState('blink');       // 'blink' | 'pool' | 'pod'
+  const [focusTaskType, setFocusTaskType] = useState('wave');
   const [focusPoolId, setFocusPoolId] = useState(null);
   const [focusPodId, setFocusPodId] = useState(null);
-  const [focusRelationships, setFocusRelationships] = useState([]);  // [{ toTaskId, type }]
+  const [focusRelationships, setFocusRelationships] = useState([]);
   const [focusTypeConfirmed, setFocusTypeConfirmed] = useState(false);
-  const [focusPodTaskDate, setFocusPodTaskDate] = useState('');    // MM-DD for annual_dates pods
+  const [focusPodTaskDate, setFocusPodTaskDate] = useState('');
 
   // Review State
   const [reviewTaskId, setReviewTaskId] = useState(null);
@@ -309,7 +347,6 @@ export default function OT2App() {
       if (st) setTasks(JSON.parse(st));
       if (stm) setTimers(JSON.parse(stm));
       if (sr) setReviews(JSON.parse(sr));
-      if (su) { setUser(JSON.parse(su)); setIsAuthenticated(true); }
       if (spl) setPools(JSON.parse(spl));
       if (spd) setPods(JSON.parse(spd));
       if (spl2) setPodLogs(JSON.parse(spl2));
@@ -330,7 +367,6 @@ export default function OT2App() {
     return () => clearInterval(interval);
   }, [timers]);
 
-  // Auto-show video modal on Freedom Mode first load
   useEffect(() => {
     if (page === 'home' && guestMode === 'freedom' && !hideVideoOnStartup && !showVideoModal) {
       const sessionKey = 'ot2_video_shown_this_session';
@@ -362,7 +398,7 @@ export default function OT2App() {
   // === TASK FUNCTIONS ===
   const addTask = () => {
     if (!newTask.trim()) return;
-    const task = { id: uid(), content: newTask.trim(), createdAt: Date.now(), isCompleted: false, reflection: null, type: 'blink', poolIds: [], podId: null };
+    const task = { id: uid(), content: newTask.trim(), createdAt: Date.now(), isCompleted: false, reflection: null, type: 'wave', poolIds: [], podId: null };
     setTasks(p => [task, ...p]);
     setNewTask('');
   };
@@ -372,11 +408,23 @@ export default function OT2App() {
     stopTimer(id);
     setReviewTaskId(id); setSatisfactionRating(0); setImprovements('');
   };
+  
+  // NEW: Reactivate completed task
+  const reactivateTask = (id) => {
+    setTasks(p => p.map(t => t.id === id ? { ...t, isCompleted: false, completedAt: null } : t));
+  };
+  
   const submitReview = () => {
     if (!reviewTaskId || satisfactionRating === 0) return;
     setReviews(p => [{ taskId: reviewTaskId, satisfactionRating, improvements, completedAt: Date.now() }, ...p]);
     setReviewTaskId(null); setSatisfactionRating(0); setImprovements('');
   };
+  
+  // NEW: Update review
+  const updateReview = (taskId, newRating, newImprovements) => {
+    setReviews(p => p.map(r => r.taskId === taskId ? { ...r, satisfactionRating: newRating, improvements: newImprovements } : r));
+  };
+  
   const skipReview = () => { setReviewTaskId(null); setSatisfactionRating(0); setImprovements(''); };
   const getStats = () => ({
     totalCompleted: completedTasks.length,
@@ -392,7 +440,7 @@ export default function OT2App() {
     setWizardStep(0);
     // ERR-005: pre-populate from existing reflection so prior answers are editable
     setWizardAnswers(task?.reflection ? { ...task.reflection } : {});
-    setFocusTaskType(task?.type && task.type !== 'blink' ? task.type : 'blink');
+    setFocusTaskType(task?.type && task.type !== 'wave' ? task.type : 'wave');
     setFocusPoolId(task?.poolIds?.[0] || null);
     setFocusPodId(task?.podId || null);
     setFocusRelationships([]);
@@ -416,7 +464,6 @@ export default function OT2App() {
       if (focusTaskType === 'pod' && focusPodId) {
         updated.podId = focusPodId;
         updated.type = 'pod';
-        // For annual_dates pods, store the per-task MM-DD date
         if (focusPodTaskDate) updated.podTaskDate = focusPodTaskDate;
       }
       return updated;
@@ -467,31 +514,34 @@ export default function OT2App() {
   const setPodLog = (podId, taskId, date, updates) => {
     const key = podLogKey(podId, taskId, date);
     const today = todayStr();
-    // Retroactively editable up to 5 days
     const minDate = addDays(today, -5);
-    if (date < minDate) return; // locked
+    if (date < minDate) return;
     setPodLogs(prev => ({ ...prev, [key]: { ...getPodLog(podId, taskId, date), ...updates } }));
   };
 
-  // === AUTH FUNCTIONS (stub) ===
-  const handleLogin = () => {
+  // === AUTH FUNCTIONS ===
+  const handleLogin = async () => {
     setAuthError('');
     if (!authForm.email || !authForm.password) { setAuthError('Please fill all fields'); return; }
-    const found = TEST_USERS.find(u => u.email === authForm.email && u.password === authForm.password);
-    if (!found) { setAuthError('Invalid credentials'); return; }
-    setAuthLoading(true);
-    setTimeout(() => {
-      setAuthLoading(false);
-      const u = { email: found.email, profileName: found.profileName };
-      setUser(u); setIsAuthenticated(true);
-      localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(u));
-      setPage('home'); setAuthForm({ email: '', profileName: '', password: '', confirmPassword: '', otpCode: '', newPassword: '' });
-    }, 800);
+    const { error } = await signIn(authForm.email, authForm.password);
+    if (error) { setAuthError(error.message); return; }
+    setPage('home');
+    setAuthForm({ email: '', profileName: '', password: '', confirmPassword: '' });
+  };
+
+  const handleSignup = async () => {
+    setAuthError('');
+    if (!authForm.email || !authForm.profileName || !authForm.password) { setAuthError('Please fill all fields'); return; }
+    if (authForm.password !== authForm.confirmPassword) { setAuthError("Passwords don't match"); return; }
+    if (authForm.password.length < 6) { setAuthError('Password must be at least 6 characters'); return; }
+    const { error } = await signUp(authForm.email, authForm.password, authForm.profileName);
+    if (error) { setAuthError(error.message); return; }
+    setPage('home');
+    setAuthForm({ email: '', profileName: '', password: '', confirmPassword: '' });
   };
 
   const handleLogout = () => {
-    setUser(null); setIsAuthenticated(false);
-    localStorage.removeItem(STORAGE_KEYS.USER);
+    signOut();
   };
 
   const handleHideVideoOnStartup = (checked) => {
@@ -563,7 +613,7 @@ export default function OT2App() {
             )}
             {isAuthenticated ? (
               <>
-                <span style={styles.greeting}>Hi, {user?.profileName}</span>
+                <span style={styles.greeting}>Hi, {user?.user_metadata?.profile_name || user?.email}</span>
                 <button style={styles.outlineBtn} onClick={handleLogout}>Log out</button>
               </>
             ) : (
@@ -650,7 +700,16 @@ export default function OT2App() {
               />
             )}
 
-            {guestMode === 'review' && <ReviewMode stats={getStats()} reviews={reviews} tasks={tasks} />}
+            {guestMode === 'review' && (
+              <ReviewMode 
+                stats={getStats()} 
+                reviews={reviews} 
+                tasks={tasks} 
+                completedTasks={completedTasks}
+                onReactivateTask={reactivateTask}
+                onUpdateReview={updateReview}
+              />
+            )}
 
             <div style={styles.ctaSection}>
               <p style={styles.ctaText}>Create an account to unlock analytics, sync across devices, and more</p>
@@ -663,11 +722,11 @@ export default function OT2App() {
 
         {/* Features */}
         <section style={styles.features}>
-          <h2 style={styles.featuresTitle}>Organise with Pools · Pods · Blinks</h2>
+          <h2 style={styles.featuresTitle}>Organise with Pools · Pods · Waves</h2>
           <div style={styles.featuresGrid}>
             <FeatureCard icon={<Icons.Layers />} title="Pool" description="Loose-ended groupings. Sprint, goal, category, context — tasks relate to each other within a pool." color="#6366F1" />
             <FeatureCard icon={<Icons.Repeat />} title="Pod" description="Habit-like recurring tasks. Medicine, birthdays, exercise routines — with custom tracker fields." color="#0EA5E9" />
-            <FeatureCard icon={<Icons.Feather />} title="Blink" description="Standalone thoughts. A scrap, note or quick task that exists independently." color="#10B981" />
+            <FeatureCard icon={<Icons.Feather />} title="Wave" description="Standalone thoughts. A scrap, note or quick task that exists independently." color="#10B981" />
             <FeatureCard icon={<Icons.Brain />} title="Focus Mode" description="Socratic questions help you understand why each task matters." color="#FF6B6B" />
           </div>
         </section>
@@ -722,22 +781,122 @@ function FeatureCard({ icon, title, description, color }) {
 }
 
 // ============================================================================
-// FREEDOM MODE
+// NAV DROPDOWN
+// ============================================================================
+function NavDropdown({ label, items, isOpen, onToggle, onClose }) {
+  const ref = useRef(null);
+  
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [onClose]);
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button style={styles.navLink} onClick={onToggle}>
+        {label} <Icons.ChevronDown className="w-3 h-3" style={{ marginLeft: 4 }} />
+      </button>
+      {isOpen && (
+        <div style={styles.dropdownMenu}>
+          {items.map((item, idx) => (
+            <a key={idx} href={item.url} style={styles.dropdownItem}>
+              <span>{item.icon}</span> {item.label}
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// FREEDOM MODE - Updated with Rich Text Box and highlighted Focus button
 // ============================================================================
 function FreedomMode({ newTask, setNewTask, onAddTask, pendingTasks, allPendingCount, completedTasks, onDeleteTask, onStartFocus }) {
-  const handleKeyDown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onAddTask(); } };
+  const textareaRef = useRef(null);
+  
+  const handleKeyDown = (e) => { 
+    // Cmd/Ctrl+Enter to submit
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { 
+      e.preventDefault(); 
+      onAddTask(); 
+    }
+    // Enter alone creates new line (default textarea behavior)
+  };
+  
   const qualifiedCount = (allPendingCount || 0) - pendingTasks.length;
+  
+  // Simple rich text formatting
+  const applyFormat = (format) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selectedText = newTask.substring(start, end);
+    
+    let formattedText = '';
+    switch (format) {
+      case 'bold':
+        formattedText = `**${selectedText}**`;
+        break;
+      case 'italic':
+        formattedText = `*${selectedText}*`;
+        break;
+      case 'list':
+        formattedText = `\n• ${selectedText}`;
+        break;
+      default:
+        return;
+    }
+    
+    const newText = newTask.substring(0, start) + formattedText + newTask.substring(end);
+    setNewTask(newText);
+  };
+  
   return (
     <div>
-      <div style={styles.inputRow}>
-        <input type="text" placeholder="What's on your mind?" value={newTask} onChange={e => setNewTask(e.target.value)} onKeyDown={handleKeyDown} style={styles.input} />
-        <button style={styles.iconBtn} onClick={onAddTask}><Icons.Plus /></button>
+      {/* Rich Text Input Area */}
+      <div style={styles.richTextContainer}>
+        <div style={styles.richTextToolbar}>
+          <button style={styles.formatBtn} onClick={() => applyFormat('bold')} title="Bold (wrap selection with **)">
+            <Icons.Bold className="w-4 h-4" />
+          </button>
+          <button style={styles.formatBtn} onClick={() => applyFormat('italic')} title="Italic (wrap selection with *)">
+            <Icons.Italic className="w-4 h-4" />
+          </button>
+          <button style={styles.formatBtn} onClick={() => applyFormat('list')} title="Add bullet point">
+            <Icons.List className="w-4 h-4" />
+          </button>
+          <span style={styles.formatHint}>Cmd/Ctrl+Enter to add</span>
+        </div>
+        <textarea 
+          ref={textareaRef}
+          placeholder="What's on your mind? Add notes, tasks, thoughts..." 
+          value={newTask} 
+          onChange={e => setNewTask(e.target.value)} 
+          onKeyDown={handleKeyDown} 
+          style={styles.richTextArea}
+          rows={3}
+        />
+        <button style={styles.addTaskBtn} onClick={onAddTask}>
+          <Icons.Plus className="w-4 h-4" /> Add Task
+        </button>
       </div>
+      
+      {/* Instruction hint */}
+      <p style={styles.focusHint}>
+        <Icons.Lightbulb className="w-4 h-4" style={{ display: 'inline', verticalAlign: 'middle', marginRight: 6 }} />
+        After adding tasks, click the <strong>Focus</strong> button to visualize and qualify the work
+      </p>
+      
       {qualifiedCount > 0 && (
         <div style={{ fontSize: 12, color: '#10B981', backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 7, padding: '5px 12px', marginBottom: 10 }}>
           ✓ {qualifiedCount} task{qualifiedCount !== 1 ? 's' : ''} moved to Work Mode after Focus — Freedom shows only new captures
         </div>
       )}
+      
       <div style={styles.taskArea}>
         {pendingTasks.length === 0 ? (
           <EmptyState icon={<Icons.Sparkles />} message="Add your first task to get started" />
@@ -746,8 +905,7 @@ function FreedomMode({ newTask, setNewTask, onAddTask, pendingTasks, allPendingC
             {pendingTasks.map(task => (
               <div key={task.id} style={styles.taskItem}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
-                  {/* type badge */}
-                  {task.type && task.type !== 'blink' && (
+                  {task.type && task.type !== 'blink' && task.type !== 'wave' && (
                     <span style={{ ...styles.typeBadge, backgroundColor: task.type === 'pool' ? '#6366F115' : '#0EA5E915', color: task.type === 'pool' ? '#6366F1' : '#0EA5E9' }}>
                       {task.type === 'pool' ? '⊕ Pool' : '↻ Pod'}
                     </span>
@@ -756,7 +914,10 @@ function FreedomMode({ newTask, setNewTask, onAddTask, pendingTasks, allPendingC
                 </div>
                 <div style={styles.taskActions}>
                   <button style={styles.ghostBtn} onClick={() => onDeleteTask(task.id)} title="Delete"><Icons.Trash /></button>
-                  <button style={styles.smallOutlineBtn} onClick={() => onStartFocus(task.id)}><Icons.Hourglass className="w-3.5 h-3.5" />Focus</button>
+                  {/* HIGHLIGHTED FOCUS BUTTON */}
+                  <button style={styles.highlightedFocusBtn} onClick={() => onStartFocus(task.id)}>
+                    <Icons.Hourglass className="w-3.5 h-3.5" />Focus
+                  </button>
                 </div>
               </div>
             ))}
@@ -768,7 +929,7 @@ function FreedomMode({ newTask, setNewTask, onAddTask, pendingTasks, allPendingC
 }
 
 // ============================================================================
-// POOL COMBOBOX
+// POOL COMBOBOX - Updated with inline Create button
 // ============================================================================
 function PoolComboBox({ pools, onSelect, onCreatePool, selectedPoolId }) {
   const [search, setSearch] = useState('');
@@ -777,6 +938,7 @@ function PoolComboBox({ pools, onSelect, onCreatePool, selectedPoolId }) {
 
   const filtered = pools.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
   const selected = pools.find(p => p.id === selectedPoolId);
+  const showCreateBtn = search.trim() && !filtered.some(p => p.name.toLowerCase() === search.toLowerCase());
 
   const handleCreate = () => {
     if (!search.trim()) return;
@@ -794,38 +956,115 @@ function PoolComboBox({ pools, onSelect, onCreatePool, selectedPoolId }) {
 
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <div style={styles.comboInput} onClick={() => setOpen(true)}>
-        {selected ? (
-          <span style={{ color: '#18181B', fontWeight: 500 }}>⊕ {selected.name}</span>
-        ) : (
-          <span style={{ color: '#A1A1AA' }}>Search or create a Pool…</span>
+      <div style={styles.comboInputRow}>
+        <div style={{ ...styles.comboInput, flex: 1 }} onClick={() => setOpen(true)}>
+          {open ? (
+            <input
+              autoFocus
+              type="text"
+              placeholder="Search or type new pool name…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={styles.comboSearchInput}
+              onClick={e => e.stopPropagation()}
+            />
+          ) : selected ? (
+            <span style={{ color: '#18181B', fontWeight: 500 }}>⊕ {selected.name}</span>
+          ) : (
+            <span style={{ color: '#A1A1AA' }}>Search or create a Pool…</span>
+          )}
+          <Icons.ChevronDown className="w-4 h-4" style={{ flexShrink: 0 }} />
+        </div>
+        {/* Inline Create Button */}
+        {showCreateBtn && (
+          <button style={styles.inlineCreateBtn} onClick={handleCreate}>
+            <Icons.Plus className="w-4 h-4" /> Create
+          </button>
         )}
-        <Icons.ChevronDown className="w-4 h-4" />
       </div>
       {open && (
         <div style={styles.comboDropdown}>
-          <input
-            autoFocus
-            type="text"
-            placeholder="Search or type new pool name…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            style={{ ...styles.input, marginBottom: 8 }}
-            onKeyDown={e => { if (e.key === 'Enter') handleCreate(); }}
-          />
           <div style={{ maxHeight: 160, overflowY: 'auto' }}>
             {filtered.length === 0 && !search && <p style={{ color: '#A1A1AA', fontSize: 13, padding: '4px 0' }}>No pools yet</p>}
             {filtered.map(p => (
-              <div key={p.id} style={{ ...styles.comboOption, ...(p.id === selectedPoolId ? { backgroundColor: '#6366F115', fontWeight: 600 } : {}) }} onClick={() => { onSelect(p.id); setOpen(false); }}>
+              <div key={p.id} style={{ ...styles.comboOption, ...(p.id === selectedPoolId ? { backgroundColor: '#6366F115', fontWeight: 600 } : {}) }} onClick={() => { onSelect(p.id); setOpen(false); setSearch(''); }}>
                 ⊕ {p.name}
               </div>
             ))}
           </div>
-          {search.trim() && !filtered.some(p => p.name.toLowerCase() === search.toLowerCase()) && (
-            <button style={{ ...styles.primaryBtn, width: '100%', marginTop: 8, justifyContent: 'center', backgroundColor: '#6366F1' }} onClick={handleCreate}>
-              <Icons.Plus className="w-4 h-4" /> Create "{search}"
-            </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// POD COMBOBOX - Updated with inline Create button
+// ============================================================================
+function PodComboBox({ pods, onSelect, onCreatePod, selectedPodId }) {
+  const [search, setSearch] = useState('');
+  const [open, setOpen] = useState(false);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const ref = useRef(null);
+
+  const filtered = pods.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
+  const selected = pods.find(p => p.id === selectedPodId);
+  const showCreateBtn = search.trim() && !filtered.some(p => p.name.toLowerCase() === search.toLowerCase());
+
+  const handleQuickCreate = () => {
+    if (!search.trim()) return;
+    const pod = onCreatePod({ name: search.trim(), podType: 'recurring', recurrence: { type: 'daily' }, trackerFields: [] });
+    onSelect(pod.id);
+    setSearch('');
+    setOpen(false);
+  };
+
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <div style={styles.comboInputRow}>
+        <div style={{ ...styles.comboInput, flex: 1 }} onClick={() => setOpen(true)}>
+          {open ? (
+            <input
+              autoFocus
+              type="text"
+              placeholder="Search or type new pod name…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={styles.comboSearchInput}
+              onClick={e => e.stopPropagation()}
+            />
+          ) : selected ? (
+            <span style={{ color: '#18181B', fontWeight: 500 }}>↻ {selected.name}</span>
+          ) : (
+            <span style={{ color: '#A1A1AA' }}>Search or create a Pod…</span>
           )}
+          <Icons.ChevronDown className="w-4 h-4" style={{ flexShrink: 0 }} />
+        </div>
+        {showCreateBtn && (
+          <button style={{ ...styles.inlineCreateBtn, backgroundColor: '#0EA5E9' }} onClick={handleQuickCreate}>
+            <Icons.Plus className="w-4 h-4" /> Create
+          </button>
+        )}
+      </div>
+      {open && (
+        <div style={styles.comboDropdown}>
+          <div style={{ maxHeight: 160, overflowY: 'auto' }}>
+            {filtered.length === 0 && !search && <p style={{ color: '#A1A1AA', fontSize: 13, padding: '4px 0' }}>No pods yet</p>}
+            {filtered.map(p => (
+              <div key={p.id} style={{ ...styles.comboOption, ...(p.id === selectedPodId ? { backgroundColor: '#0EA5E915', fontWeight: 600 } : {}) }} onClick={() => { onSelect(p.id); setOpen(false); setSearch(''); }}>
+                <div>
+                  <span style={{ fontWeight: 500 }}>↻ {p.name}</span>
+                  <div style={{ fontSize: 11, color: '#71717A' }}>{podSummaryLine(p)}</div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -840,7 +1079,6 @@ function PoolRelationshipPanel({ currentTaskId, poolId, pools, tasks, relationsh
   const [selectedTaskIds, setSelectedTaskIds] = useState([]);
 
   const pool = pools.find(p => p.id === poolId);
-  // Tasks in this pool (excluding current task)
   const poolTasks = tasks.filter(t => t.id !== currentTaskId && (t.poolIds || []).includes(poolId));
 
   const toggleTask = (id) => setSelectedTaskIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -860,7 +1098,6 @@ function PoolRelationshipPanel({ currentTaskId, poolId, pools, tasks, relationsh
         <p style={{ color: '#A1A1AA', fontSize: 13 }}>No other tasks in this pool yet — relationships can be added later.</p>
       ) : (
         <>
-          {/* Relationship type buttons */}
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
             {RELATIONSHIP_TYPES.map(rt => (
               <button key={rt.key} onClick={() => setRelType(rt.key)} style={{
@@ -871,7 +1108,6 @@ function PoolRelationshipPanel({ currentTaskId, poolId, pools, tasks, relationsh
               </button>
             ))}
           </div>
-          {/* Task multi-select */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 10 }}>
             {poolTasks.map(t => (
               <label key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', padding: '6px 8px', borderRadius: 6, backgroundColor: selectedTaskIds.includes(t.id) ? '#6366F110' : 'transparent' }}>
@@ -886,7 +1122,6 @@ function PoolRelationshipPanel({ currentTaskId, poolId, pools, tasks, relationsh
         </>
       )}
 
-      {/* Show existing relationships */}
       {relationships.length > 0 && (
         <div style={{ marginTop: 12 }}>
           <p style={{ fontSize: 12, color: '#71717A', marginBottom: 6 }}>Added relationships:</p>
@@ -908,7 +1143,7 @@ function PoolRelationshipPanel({ currentTaskId, poolId, pools, tasks, relationsh
 }
 
 // ============================================================================
-// POD PICKER / CREATOR (used in Focus Mode)
+// POD PICKER / CREATOR (used in Focus Mode) - Simplified with ComboBox
 // ============================================================================
 function PodPicker({ pods, selectedPodId, onSelect, onCreatePod }) {
   const [creating, setCreating] = useState(false);
@@ -950,7 +1185,6 @@ function PodPicker({ pods, selectedPodId, onSelect, onCreatePod }) {
   const removeField = (idx) => setForm(p => ({ ...p, trackerFields: p.trackerFields.filter((_, i) => i !== idx) }));
   const toggleWeekDay = (d) => setForm(p => ({ ...p, weekDays: p.weekDays.includes(d) ? p.weekDays.filter(x => x !== d) : [...p.weekDays, d] }));
 
-  // Recurrence description preview shown below the selector
   const recurrencePreview = () => {
     const r = form;
     if (r.recurrenceType === 'daily') return '↳ Will appear every single day in the calendar grid';
@@ -967,101 +1201,80 @@ function PodPicker({ pods, selectedPodId, onSelect, onCreatePod }) {
     <div style={{ marginTop: 12 }}>
       {!creating ? (
         <>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
-            {pods.map(p => (
-              <div key={p.id} onClick={() => onSelect(p.id)} style={{ ...styles.podPickerItem, ...(p.id === selectedPodId ? { borderColor: '#0EA5E9', backgroundColor: '#0EA5E910' } : {}) }}>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Icons.Repeat className="w-4 h-4" style={{ color: '#0EA5E9', flexShrink: 0 }} />
-                    <span style={{ fontWeight: 600, fontSize: 14 }}>{p.name}</span>
-                  </div>
-                  <div style={{ fontSize: 12, color: '#71717A', marginTop: 2, paddingLeft: 22 }}>{podSummaryLine(p)}</div>
-                </div>
-                {p.id === selectedPodId && <Icons.Check className="w-4 h-4" style={{ color: '#0EA5E9', flexShrink: 0 }} />}
-              </div>
-            ))}
-            {pods.length === 0 && <p style={{ color: '#A1A1AA', fontSize: 13 }}>No Pods yet — create one below.</p>}
-          </div>
-          <button style={{ ...styles.primaryBtn, backgroundColor: '#0EA5E9' }} onClick={() => setCreating(true)}>
-            <Icons.Plus className="w-4 h-4" /> Create new Pod
+          <PodComboBox pods={pods} selectedPodId={selectedPodId} onSelect={onSelect} onCreatePod={onCreatePod} />
+          <button style={{ ...styles.linkBtn, marginTop: 8, color: '#0EA5E9' }} onClick={() => setCreating(true)}>
+            + Create pod with advanced options
           </button>
         </>
       ) : (
         <div style={styles.podForm}>
           <p style={{ fontWeight: 700, fontSize: 14, marginBottom: 14, color: '#0EA5E9' }}>↻ New Pod</p>
 
-          {/* Pod name */}
           <label style={styles.label}>Pod name</label>
           <input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Birthdays, Outdoor Activities, Medication" style={{ ...styles.input, marginBottom: 14 }} />
 
-          {/* Pod type */}
           <label style={styles.label}>Pod type</label>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
             {POD_TYPES.map(pt => (
-              <label key={pt.key} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px', borderRadius: 8, border: `2px solid ${podType === pt.key ? '#0EA5E9' : '#E4E4E7'}`, cursor: 'pointer', backgroundColor: podType === pt.key ? '#F0F9FF' : 'white' }}>
-                <input type="radio" name="podType" value={pt.key} checked={podType === pt.key} onChange={() => setPodType(pt.key)} style={{ accentColor: '#0EA5E9', marginTop: 2 }} />
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: 13, color: podType === pt.key ? '#0369A1' : '#18181B' }}>{pt.label}</div>
-                  <div style={{ fontSize: 12, color: '#71717A', marginTop: 2 }}>{pt.desc}</div>
-                </div>
-              </label>
+              <button key={pt.key} onClick={() => setPodType(pt.key)} style={{ ...styles.podTypeBtn, ...(podType === pt.key ? styles.podTypeBtnActive : {}) }}>
+                <div style={{ fontWeight: 600, fontSize: 13 }}>{pt.label}</div>
+                <div style={{ fontSize: 11, color: '#71717A', marginTop: 2 }}>{pt.desc.substring(0, 50)}…</div>
+              </button>
             ))}
           </div>
 
-          {/* Recurring-only options */}
           {podType === 'recurring' && (
             <>
-              <label style={styles.label}>Recurrence schedule</label>
-              <select value={form.recurrenceType} onChange={e => setForm(p => ({ ...p, recurrenceType: e.target.value }))} style={{ ...styles.input, marginBottom: 4 }}>
-                {RECURRENCE_TYPES.map(r => <option key={r.key} value={r.key}>{r.label} — {r.desc}</option>)}
+              <label style={styles.label}>Recurrence pattern</label>
+              <select value={form.recurrenceType} onChange={e => setForm(p => ({ ...p, recurrenceType: e.target.value }))} style={{ ...styles.input, marginBottom: 8 }}>
+                {RECURRENCE_TYPES.map(rt => <option key={rt.key} value={rt.key}>{rt.label}</option>)}
               </select>
-              <p style={{ fontSize: 12, color: '#0EA5E9', marginBottom: 10, fontStyle: 'italic' }}>{recurrencePreview()}</p>
+              <p style={{ fontSize: 12, color: '#71717A', marginBottom: 14 }}>{recurrencePreview()}</p>
 
               {form.recurrenceType === 'specific_days' && (
-                <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
                   {WEEK_DAYS.map((d, i) => (
-                    <button key={i} type="button" onClick={() => toggleWeekDay(i)} style={{ ...styles.dayBtn, ...(form.weekDays.includes(i) ? styles.dayBtnActive : {}) }}>{d}</button>
+                    <button key={i} onClick={() => toggleWeekDay(i)} style={{ ...styles.weekDayBtn, ...(form.weekDays.includes(i) ? styles.weekDayBtnActive : {}) }}>{d}</button>
                   ))}
                 </div>
               )}
-              {form.recurrenceType === 'monthly_frequency' && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                  <input type="number" min={1} max={31} value={form.frequency} onChange={e => setForm(p => ({ ...p, frequency: +e.target.value }))} style={{ ...styles.input, width: 70 }} />
-                  <span style={{ fontSize: 13, color: '#71717A' }}>times per month</span>
-                </div>
-              )}
+
               {form.recurrenceType === 'every_n_days' && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                  <span style={{ fontSize: 13, color: '#71717A' }}>Every</span>
-                  <input type="number" min={1} max={90} value={form.everyNDays} onChange={e => setForm(p => ({ ...p, everyNDays: +e.target.value }))} style={{ ...styles.input, width: 70 }} />
-                  <span style={{ fontSize: 13, color: '#71717A' }}>days</span>
+                <div style={{ marginBottom: 14 }}>
+                  <label style={styles.label}>Every how many days?</label>
+                  <input type="number" min="2" max="365" value={form.everyNDays} onChange={e => setForm(p => ({ ...p, everyNDays: parseInt(e.target.value) || 2 }))} style={{ ...styles.input, width: 100 }} />
                 </div>
               )}
 
-              <label style={styles.label}>Tracker fields (up to 5) <span style={{ fontWeight: 400, color: '#A1A1AA' }}>— what do you want to log each occurrence?</span></label>
-              {form.trackerFields.map((f, i) => (
-                <div key={f.id} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
-                  <input value={f.name} onChange={e => updateField(i, 'name', e.target.value)} placeholder={['Kms walked / run', 'Minutes practiced', 'Calories burned', 'Pages read', 'Hours slept'][i] || 'Field name'} style={{ ...styles.input, flex: 1 }} />
-                  <select value={f.type} onChange={e => updateField(i, 'type', e.target.value)} style={{ ...styles.input, width: 110 }}>
-                    <option value="checkbox">✓ Done/Not done</option>
-                    <option value="text">✏ Free input</option>
-                  </select>
-                  {form.trackerFields.length > 1 && <button type="button" onClick={() => removeField(i)} style={{ ...styles.ghostBtn, color: '#EF4444', padding: '4px' }}><Icons.X className="w-3.5 h-3.5" /></button>}
+              {form.recurrenceType === 'monthly_frequency' && (
+                <div style={{ marginBottom: 14 }}>
+                  <label style={styles.label}>Times per month</label>
+                  <input type="number" min="1" max="31" value={form.frequency} onChange={e => setForm(p => ({ ...p, frequency: parseInt(e.target.value) || 1 }))} style={{ ...styles.input, width: 100 }} />
                 </div>
-              ))}
-              {form.trackerFields.length < 5 && <button type="button" style={{ ...styles.ghostBtn, fontSize: 13, color: '#0EA5E9' }} onClick={addField}><Icons.Plus className="w-3.5 h-3.5" /> Add tracker field</button>}
+              )}
+
+              <label style={styles.label}>Tracker fields (optional)</label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 }}>
+                {form.trackerFields.map((f, i) => (
+                  <div key={f.id} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <input placeholder="Field name" value={f.name} onChange={e => updateField(i, 'name', e.target.value)} style={{ ...styles.input, flex: 1 }} />
+                    <select value={f.type} onChange={e => updateField(i, 'type', e.target.value)} style={{ ...styles.input, width: 100 }}>
+                      <option value="checkbox">Checkbox</option>
+                      <option value="text">Text</option>
+                    </select>
+                    <button onClick={() => removeField(i)} style={{ ...styles.ghostBtn, padding: 4, color: '#EF4444' }}><Icons.Trash className="w-3.5 h-3.5" /></button>
+                  </div>
+                ))}
+                {form.trackerFields.length < 5 && (
+                  <button onClick={addField} style={{ ...styles.linkBtn, color: '#0EA5E9', alignSelf: 'flex-start' }}>+ Add field</button>
+                )}
+              </div>
             </>
           )}
 
-          {podType === 'annual_dates' && (
-            <div style={{ backgroundColor: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: 8, padding: 12, fontSize: 13, color: '#0369A1', marginTop: 4 }}>
-              📌 Each task you add to this Pod will be given its own specific date (day + month). No recurrence needed on the Pod itself.
-            </div>
-          )}
-
-          <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-            <button type="button" style={{ ...styles.primaryBtn, backgroundColor: '#0EA5E9' }} onClick={handleCreate}>Create Pod</button>
-            <button type="button" style={styles.ghostBtn} onClick={() => setCreating(false)}>Cancel</button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button style={{ ...styles.primaryBtn, backgroundColor: '#0EA5E9' }} onClick={handleCreate}>Create Pod</button>
+            <button style={styles.ghostBtn} onClick={() => setCreating(false)}>Cancel</button>
           </div>
         </div>
       )}
@@ -1070,84 +1283,54 @@ function PodPicker({ pods, selectedPodId, onSelect, onCreatePod }) {
 }
 
 // ============================================================================
-// DONE CARD (extracted so it can manage its own loading state for extended Qs)
+// DONE CARD (Focus Mode completion)
 // ============================================================================
 function DoneCard({ wizardAnswers, questions, setQuestions, setWizardStep, setWizardAnswers, onFinish, task }) {
   const [loadingMore, setLoadingMore] = useState(false);
-  const [extended, setExtended] = useState(false); // hide link after one use
+  const [extended, setExtended] = useState(false);
 
   const handleMoreQuestions = async () => {
     setLoadingMore(true);
     try {
-      // Build a richer context string from existing answers so AI avoids repeating them
-      const answeredContext = Object.entries(wizardAnswers)
-        .filter(([, v]) => v)
-        .map(([k, v]) => `${k}: ${v}`)
-        .join('\n');
-
-      const prompt = `Task: "${task.content}"\n\nAlready answered:\n${answeredContext}\n\nGenerate exactly 3 more deep Socratic coaching questions that go BEYOND what has already been answered. Focus on uncovering hidden assumptions, potential blockers, or deeper motivation. Return JSON: { "questions": [{ "key": string, "question": string, "placeholder": string, "purpose": "all", "required": false }] }`;
-
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 1000,
-          messages: [{ role: 'user', content: prompt }],
-        }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const text = data.content?.find(b => b.type === 'text')?.text || '';
-        const clean = text.replace(/```json|```/g, '').trim();
-        const parsed = JSON.parse(clean);
-        const newQs = (parsed.questions || []).slice(0, 3).map(q => ({ ...q, key: `ext_${Date.now()}_${q.key}` }));
-        if (newQs.length > 0) {
-          // Init answers for new keys
-          const init = {};
-          newQs.forEach(q => { init[q.key] = ''; });
-          setWizardAnswers(prev => ({ ...prev, ...init }));
-          setQuestions(prev => [...prev, ...newQs]);
-          setWizardStep(questions.length); // jump to first new question
-        }
+      const result = await AICoachingService.getCoachingQuestions(task.content, wizardAnswers);
+      if (result.questions && result.questions.length > 0) {
+        setQuestions(prev => [...prev, ...result.questions]);
+        setWizardStep(questions.length);
       }
     } catch (e) {
-      console.warn('Extended questions failed, using fallback', e);
-      // Fallback: 3 hand-crafted deep questions
-      const fallback = [
-        { key: `ext_blockers_${Date.now()}`, question: 'What could prevent you from completing this?', placeholder: 'List any anticipated blockers or dependencies…', purpose: 'all', required: false },
-        { key: `ext_first_step_${Date.now()}`, question: 'What is the single smallest first action you can take right now?', placeholder: 'Think in minutes, not hours…', purpose: 'all', required: false },
-        { key: `ext_help_${Date.now()}`, question: 'Who or what could help you complete this faster?', placeholder: 'People, tools, resources, information…', purpose: 'all', required: false },
-      ];
-      const init = {};
-      fallback.forEach(q => { init[q.key] = ''; });
-      setWizardAnswers(prev => ({ ...prev, ...init }));
-      setQuestions(prev => [...prev, ...fallback]);
-      setWizardStep(questions.length);
-    } finally {
-      setLoadingMore(false);
-      setExtended(true);
+      console.error('Error getting more questions:', e);
     }
+    setLoadingMore(false);
+    setExtended(true);
   };
 
   return (
-    <div style={styles.wizardCard}>
-      <div style={styles.doneIcon}><Icons.Check className="w-8 h-8" /></div>
+    <div style={styles.doneCard}>
+      <div style={styles.doneIcon}>✓</div>
       <h4 style={styles.doneTitle}>Ready to work!</h4>
-      <p style={styles.doneText}>You've reflected on this task. Focus is set.</p>
-      {!extended && (
-        <div style={{ textAlign: 'center', marginBottom: 14 }}>
-          <button
-            style={{ background: 'none', border: 'none', color: '#4299E1', fontSize: 13, cursor: loadingMore ? 'default' : 'pointer', textDecoration: 'underline', display: 'inline-flex', alignItems: 'center', gap: 5, opacity: loadingMore ? 0.6 : 1 }}
-            onClick={handleMoreQuestions}
-            disabled={loadingMore}
-          >
-            {loadingMore ? <><Icons.Loader className="w-3.5 h-3.5" /> Generating questions…</> : '✦ Help me with more qualifying questions'}
-          </button>
+      <p style={styles.doneText}>You've qualified this task. It's now in Work Mode.</p>
+
+      {Object.keys(wizardAnswers).length > 0 && (
+        <div style={styles.answerSummary}>
+          <p style={styles.summaryTitle}>Your answers:</p>
+          {Object.entries(wizardAnswers).map(([key, val]) => val && (
+            <div key={key} style={styles.summaryItem}>
+              <span style={styles.summaryLabel}>{key}:</span>
+              <span style={styles.summaryValue}>{val}</span>
+            </div>
+          ))}
         </div>
       )}
-      <button style={styles.primaryBtn} onClick={onFinish}><Icons.Briefcase />Go to Work Mode</button>
+
+      {!extended && (
+        <button style={{ ...styles.linkBtn, marginBottom: 12 }} onClick={handleMoreQuestions} disabled={loadingMore}>
+          {loadingMore ? <><Icons.Loader className="w-4 h-4" /> Generating…</> : '✦ Help me with more qualifying questions'}
+        </button>
+      )}
+
+      <button style={styles.primaryBtn} onClick={onFinish}>
+        Go to Work Mode <Icons.ChevronRight />
+      </button>
     </div>
   );
 }
@@ -1158,40 +1341,42 @@ function DoneCard({ wizardAnswers, questions, setQuestions, setWizardStep, setWi
 function FocusMode({
   task, pendingTasks,
   wizardStep, setWizardStep, wizardAnswers, setWizardAnswers,
-  focusTaskType, setFocusTaskType,
-  focusPoolId, setFocusPoolId,
-  focusPodId, setFocusPodId,
-  focusRelationships, setFocusRelationships,
+  focusTaskType, setFocusTaskType, focusPoolId, setFocusPoolId,
+  focusPodId, setFocusPodId, focusRelationships, setFocusRelationships,
   focusPodTaskDate, setFocusPodTaskDate,
   focusTypeConfirmed, onConfirmType,
-  pools, pods, onCreatePool, onCreatePod,
-  tasks,
-  onFinish, onSkipTask
+  pools, pods, onCreatePool, onCreatePod, tasks, onFinish, onSkipTask,
 }) {
-  const [questions, setQuestions] = useState([]);
-  const [analysis, setAnalysis] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [questions, setQuestions] = useState([]);
 
   useEffect(() => {
-    const load = async () => {
+    const loadQuestions = async () => {
       setIsLoading(true);
       try {
-        const result = await AICoachingService.getCoachingQuestions(task.content, task.reflection || {});
-        setQuestions(result.questions || []);
-        setAnalysis(result.analysis || null);
-        const init = {};
-        result.questions.forEach(q => {
-          // ERR-005: prefer existing wizardAnswer → existing task reflection → empty string
-          init[q.key] = wizardAnswers[q.key] || task.reflection?.[q.key] || '';
-        });
-        setWizardAnswers(prev => ({ ...prev, ...init }));
-      } catch { setQuestions(FALLBACK_QUESTIONS); } finally { setIsLoading(false); }
+        const result = await AICoachingService.getCoachingQuestions(task.content, wizardAnswers);
+        setQuestions(result.questions || FALLBACK_QUESTIONS);
+      } catch {
+        setQuestions(FALLBACK_QUESTIONS);
+      }
+      setIsLoading(false);
     };
-    if (task) { load(); setWizardStep(0); }
-  }, [task?.id]);
+    loadQuestions();
+  }, [task.id]);
 
-  const currentQuestion = questions[wizardStep];
+  // ERR-005: pre-fill answers from task.reflection
+  useEffect(() => {
+    if (task.reflection) {
+      setWizardAnswers(prev => {
+        const merged = { ...prev };
+        questions.forEach(q => { if (!merged[q.key] && task.reflection[q.key]) merged[q.key] = task.reflection[q.key]; });
+        return merged;
+      });
+    }
+  }, [task.id, questions]);
+
   const totalQuestions = questions.length;
+  const currentQuestion = questions[wizardStep];
 
   const addRelationship = (rel) => setFocusRelationships(prev => [...prev, rel]);
   const removeRelationship = (idx) => setFocusRelationships(prev => prev.filter((_, i) => i !== idx));
@@ -1219,13 +1404,13 @@ function FocusMode({
         <h3 style={styles.focusTask}>{task.content}</h3>
       </div>
 
-      {/* ─── STEP 0: Task type selection (if not confirmed) ─── */}
+      {/* STEP 0: Task type selection (if not confirmed) */}
       {!focusTypeConfirmed ? (
         <div style={styles.wizardCard}>
           <p style={{ fontSize: 13, color: '#71717A', marginBottom: 6 }}>Before we go deeper — where does this task live?</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
             {[
-              { key: 'blink', label: '⚡ Blink', desc: 'Standalone note / quick task', color: '#10B981' },
+              { key: 'wave', label: '⚡ Wave', desc: 'Standalone note / quick task', color: '#10B981' },
               { key: 'pool', label: '⊕ Pool', desc: 'Part of a group / project / sprint', color: '#6366F1' },
               { key: 'pod', label: '↻ Pod', desc: 'Recurring habit / scheduled routine', color: '#0EA5E9' },
             ].map(opt => (
@@ -1281,8 +1466,8 @@ function FocusMode({
                         type="date"
                         value={focusPodTaskDate ? `${new Date().getFullYear()}-${focusPodTaskDate}` : `${new Date().toISOString().slice(0, 10)}`}
                         onChange={e => {
-                          const val = e.target.value; // yyyy-MM-dd
-                          if (val) setFocusPodTaskDate(val.slice(5)); // store MM-DD only
+                          const val = e.target.value;
+                          if (val) setFocusPodTaskDate(val.slice(5));
                         }}
                         style={{ ...styles.input, flex: 1 }}
                       />
@@ -1307,7 +1492,7 @@ function FocusMode({
           </button>
         </div>
       ) : wizardStep < totalQuestions && currentQuestion ? (
-        /* ─── Socratic Questions ─── */
+        /* Socratic Questions */
         <div style={styles.wizardCard}>
           <div style={styles.questionHeader}>
             <p style={styles.wizardProgress}>Question {wizardStep + 1} of {totalQuestions}</p>
@@ -1336,7 +1521,7 @@ function FocusMode({
           </div>
         </div>
       ) : (
-        /* ─── Done ─── */
+        /* Done */
         <DoneCard
           wizardAnswers={wizardAnswers}
           questions={questions}
@@ -1356,7 +1541,7 @@ function FocusMode({
 }
 
 // ============================================================================
-// WORK MODE
+// WORK MODE - Updated with new features
 // ============================================================================
 function WorkMode({
   pendingTasks, completedTasks, timers, getElapsedSeconds, formatTimer,
@@ -1367,11 +1552,16 @@ function WorkMode({
   improvements, setImprovements, onSubmitReview, onSkipReview, onGoToFreedom,
   pools, pods, podLogs, getPodLog, setPodLog,
 }) {
-  const [workView, setWorkView] = useState('table');
-  // Lifted out of PoolView/PodView so selection survives WorkMode re-renders (ERR-001, ERR-003)
+  const [contextFilter, setContextFilter] = useState('waves');
+  const [strategyView, setStrategyView] = useState('list');
+  const [poolStrategyView, setPoolStrategyView] = useState('list');
   const [selectedPoolId, setSelectedPoolId] = useState(null);
   const [selectedPodId, setSelectedPodId] = useState(null);
+  const [showRelationshipGraph, setShowRelationshipGraph] = useState(false);
   const reviewTask = tasks.find(t => t.id === reviewTaskId);
+
+  // Waves = tasks not in any Pool or Pod
+  const waveTasks = pendingTasks.filter(t => !(t.poolIds?.length) && !t.podId);
 
   const categorizeByDeadline = (task) => {
     const deadline = task.reflection?.deadline?.toLowerCase() || '';
@@ -1383,94 +1573,158 @@ function WorkMode({
   };
 
   const kanbanLanes = { today: { title: 'Today', color: '#FF6B6B', tasks: [] }, future: { title: 'Future', color: '#4299E1', tasks: [] }, missed: { title: 'Missed', color: '#F59E0B', tasks: [] }, notplanned: { title: 'Not Planned', color: '#A1A1AA', tasks: [] } };
-  pendingTasks.forEach(t => kanbanLanes[categorizeByDeadline(t)].tasks.push(t));
+  waveTasks.forEach(t => kanbanLanes[categorizeByDeadline(t)].tasks.push(t));
 
-  // FEAT-004: Focus button shown on every task card in Work Mode
+  // Focus button component
   const FocusBtn = ({ taskId }) => (
     <button
       title="Open in Focus Mode"
-      style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 7px', backgroundColor: 'transparent', border: '1px solid #D4D4D8', borderRadius: 5, fontSize: 11, color: '#71717A', cursor: 'pointer' }}
+      style={styles.focusBtnSmall}
       onClick={() => onStartFocus && onStartFocus(taskId)}
     >
       <Icons.Hourglass className="w-3 h-3" /> Focus
     </button>
   );
 
-  const TaskCard = ({ task, compact = false }) => {
+  // Get pool name for a task
+  const getPoolName = (task) => {
+    if (!task.poolIds?.length) return null;
+    const pool = pools.find(p => p.id === task.poolIds[0]);
+    return pool?.name;
+  };
+
+  // Get relationships for a task
+  const getTaskRelationships = (task) => {
+    if (!task.poolIds?.length) return [];
+    const pool = pools.find(p => p.id === task.poolIds[0]);
+    if (!pool?.relationships) return [];
+    return pool.relationships.filter(r => r.fromTaskId === task.id || r.toTaskId === task.id);
+  };
+
+  // TaskCard component with all reflection answers
+  const TaskCard = ({ task, compact = false, showPoolInfo = true }) => {
     const elapsed = getElapsedSeconds(task.id);
     const running = isTimerRunning(task.id);
     const paused = isTimerPaused(task.id);
+    const poolName = getPoolName(task);
+    const relationships = getTaskRelationships(task);
+    
+    // Get all reflection answers as bullets
+    const getReasonToDo = () => {
+      if (!task.reflection) return null;
+      const answers = [];
+      if (task.reflection.deadline) answers.push({ key: 'Deadline', value: task.reflection.deadline });
+      if (task.reflection.outcome) answers.push({ key: 'Outcome', value: task.reflection.outcome });
+      if (task.reflection.motivation) answers.push({ key: 'Motivation', value: task.reflection.motivation });
+      if (task.reflection.complexity) answers.push({ key: 'Complexity', value: task.reflection.complexity });
+      if (task.reflection.urgency) answers.push({ key: 'Urgency', value: task.reflection.urgency });
+      return answers;
+    };
+    
+    const reasons = getReasonToDo();
+
     return (
-      <div style={styles.taskCard}>
-        <div style={styles.taskCardHeader}>
+      <div style={styles.workTaskCard}>
+        <div style={styles.workTaskHeader}>
           <button style={styles.checkbox} onClick={() => onCompleteTask(task.id)} />
-          <span style={styles.taskCardTitle}>{task.content}</span>
-          {task.type && task.type !== 'blink' && (
-            <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, backgroundColor: task.type === 'pool' ? '#6366F115' : '#0EA5E915', color: task.type === 'pool' ? '#6366F1' : '#0EA5E9', fontWeight: 600 }}>
-              {task.type === 'pool' ? '⊕' : '↻'}
+          <div style={{ flex: 1 }}>
+            <span 
+              style={styles.workTaskTitle} 
+              onClick={() => onStartFocus(task.id)}
+              title="Click to focus on this task"
+            >
+              {task.content}
             </span>
-          )}
+            
+            {/* Type badge with pool name */}
+            <div style={styles.taskMetaRow}>
+              {task.type === 'pool' && poolName && (
+                <span style={styles.poolBadge}>Pool: {poolName}</span>
+              )}
+              {task.type === 'pod' && <span style={styles.podBadge}>↻ Pod</span>}
+              {(!task.type || task.type === 'blink' || task.type === 'wave') && <span style={styles.waveBadge}>⚡ Wave</span>}
+            </div>
+          </div>
         </div>
-        {!compact && task.reflection?.deadline && (
-          <div style={styles.taskCardMeta}><Icons.Clock className="w-3 h-3" /><span>{task.reflection.deadline}</span></div>
+        
+        {/* Reason to do - all answers as bullets */}
+        {reasons && reasons.length > 0 && (
+          <div style={styles.reasonToDoSection}>
+            <p style={styles.reasonToDoTitle}>Reason to do:</p>
+            <ul style={styles.reasonToDoList}>
+              {reasons.map((r, idx) => (
+                <li key={idx} style={styles.reasonToDoItem}>
+                  <strong>{r.key}:</strong> {r.value}
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
-        <div style={styles.taskCardActions}>
+        
+        {/* Pool relationships */}
+        {showPoolInfo && relationships.length > 0 && (
+          <div style={styles.relationshipsSection}>
+            {relationships.map((rel, idx) => {
+              const rt = RELATIONSHIP_TYPES.find(x => x.key === rel.type);
+              const otherTaskId = rel.fromTaskId === task.id ? rel.toTaskId : rel.fromTaskId;
+              const otherTask = tasks.find(t => t.id === otherTaskId);
+              return (
+                <span 
+                  key={idx} 
+                  style={{ ...styles.relationshipTag, backgroundColor: `${rt?.color}15`, color: rt?.color }}
+                  onClick={() => onStartFocus(otherTaskId)}
+                  title="Click to navigate to this task"
+                >
+                  {rt?.icon} {rt?.label}: {otherTask?.content?.substring(0, 25)}…
+                </span>
+              );
+            })}
+          </div>
+        )}
+        
+        {/* Actions */}
+        <div style={styles.workTaskActions}>
           <FocusBtn taskId={task.id} />
-          {(running || paused) && <span style={{ ...styles.timerDisplay, ...(running ? { color: '#FF6B6B', fontWeight: 600 } : {}) }}>{formatTimer(elapsed)}</span>}
-          {!running && !paused && <button style={styles.timerBtn} onClick={() => onStartTimer(task.id)}><Icons.Play className="w-3.5 h-3.5" /></button>}
-          {running && <button style={styles.timerBtn} onClick={() => onPauseTimer(task.id)}><Icons.Pause className="w-3.5 h-3.5" /></button>}
-          {paused && <button style={styles.timerBtn} onClick={() => onStartTimer(task.id)}><Icons.Play className="w-3.5 h-3.5" /></button>}
-          {(running || paused) && <button style={styles.timerBtn} onClick={() => onStopTimer(task.id)}><Icons.Square /></button>}
+          
+          {/* Timer controls - Updated with Start Work Block / Pause / Stop */}
+          {!running && !paused && (
+            <button style={styles.startWorkBtn} onClick={() => onStartTimer(task.id)}>
+              Start Work Block
+            </button>
+          )}
+          {(running || paused) && (
+            <div style={styles.timerControls}>
+              <span style={{ ...styles.timerDisplay, ...(running ? { color: '#FF6B6B', fontWeight: 600 } : {}) }}>
+                {formatTimer(elapsed)}
+              </span>
+              {running && (
+                <button style={styles.pauseBtn} onClick={() => onPauseTimer(task.id)}>
+                  <Icons.Pause className="w-3.5 h-3.5" /> Pause
+                </button>
+              )}
+              {paused && (
+                <button style={styles.resumeBtn} onClick={() => onStartTimer(task.id)}>
+                  <Icons.Play className="w-3.5 h-3.5" /> Resume
+                </button>
+              )}
+              <button style={styles.stopBtn} onClick={() => onStopTimer(task.id)}>
+                <Icons.Square className="w-3 h-3" /> Stop
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
   };
 
-  const TableView = () => (
-    <div style={styles.tableContainer}>
-      <table style={styles.table}>
-        <thead>
-          <tr>
-            <th style={styles.th}></th>
-            <th style={styles.th}>Task</th>
-            <th style={styles.th}>Type</th>
-            <th style={styles.th}>Deadline</th>
-            <th style={styles.th}>Outcome</th>
-            <th style={{ ...styles.th, textAlign: 'right' }}>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {pendingTasks.map(task => {
-            const elapsed = getElapsedSeconds(task.id);
-            const running = isTimerRunning(task.id);
-            const paused = isTimerPaused(task.id);
-            return (
-              <tr key={task.id} style={styles.tr}>
-                <td style={styles.td}><button style={styles.checkbox} onClick={() => onCompleteTask(task.id)} /></td>
-                <td style={{ ...styles.td, fontWeight: 500 }}>{task.content}</td>
-                <td style={styles.td}>
-                  {task.type === 'pool' && <span style={{ color: '#6366F1', fontSize: 12 }}>⊕ Pool</span>}
-                  {task.type === 'pod' && <span style={{ color: '#0EA5E9', fontSize: 12 }}>↻ Pod</span>}
-                  {(!task.type || task.type === 'blink') && <span style={{ color: '#10B981', fontSize: 12 }}>⚡ Blink</span>}
-                </td>
-                <td style={styles.tdMuted}>{task.reflection?.deadline || '—'}</td>
-                <td style={styles.tdMuted} title={task.reflection?.outcome}>{task.reflection?.outcome ? task.reflection.outcome.substring(0, 30) + '…' : '—'}</td>
-                <td style={{ ...styles.td, textAlign: 'right' }}>
-                  <div style={styles.timerCell}>
-                    {/* FEAT-004: Focus button in table rows */}
-                    <FocusBtn taskId={task.id} />
-                    {(running || paused) && <span style={{ ...styles.timerDisplay, ...(running ? { color: '#FF6B6B', fontWeight: 600 } : {}) }}>{formatTimer(elapsed)}</span>}
-                    {!running && !paused && <button style={styles.timerBtn} onClick={() => onStartTimer(task.id)}><Icons.Play className="w-3.5 h-3.5" /></button>}
-                    {running && <button style={styles.timerBtn} onClick={() => onPauseTimer(task.id)}><Icons.Pause className="w-3.5 h-3.5" /></button>}
-                    {paused && <button style={styles.timerBtn} onClick={() => onStartTimer(task.id)}><Icons.Play className="w-3.5 h-3.5" /></button>}
-                    {(running || paused) && <button style={styles.timerBtn} onClick={() => onStopTimer(task.id)}><Icons.Square /></button>}
-                  </div>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+  // List Waves View (default view)
+  const ListWavesView = () => (
+    <div style={styles.listWavesContainer}>
+      {waveTasks.length === 0 ? (
+        <EmptyState icon={<Icons.Briefcase className="w-8 h-8" />} message="No waves here. Add tasks in Freedom mode, or check Pools & Pods!" action={{ label: 'Go to Freedom Mode', onClick: onGoToFreedom }} />
+      ) : (
+        waveTasks.map(task => <TaskCard key={task.id} task={task} />)
+      )}
     </div>
   );
 
@@ -1483,87 +1737,186 @@ function WorkMode({
             <span style={{ ...styles.kanbanLaneCount, backgroundColor: lane.color }}>{lane.tasks.length}</span>
           </div>
           <div style={styles.kanbanLaneBody}>
-            {lane.tasks.length === 0 ? <div style={styles.kanbanEmpty}>No tasks</div> : lane.tasks.map(t => <TaskCard key={t.id} task={t} compact />)}
+            {lane.tasks.length === 0 ? <div style={styles.kanbanEmpty}>No waves</div> : lane.tasks.map(t => <TaskCard key={t.id} task={t} compact />)}
           </div>
         </div>
       ))}
     </div>
   );
 
-  // ─── NEW: Pool View ───
+  // Pool View — supports all four strategy views
   const PoolView = () => {
     const pool = pools.find(p => p.id === selectedPoolId);
     const poolTasks = pendingTasks.filter(t => (t.poolIds || []).includes(selectedPoolId));
     const poolRels = (pool?.relationships || []);
 
-    const getRelLabel = (taskId) => {
-      const rels = poolRels.filter(r => r.fromTaskId === taskId || r.toTaskId === taskId);
-      return rels;
+    // ── Kanban lanes for pool tasks ──
+    const poolKanbanLanes = { today: { title: 'Today', color: '#FF6B6B', tasks: [] }, future: { title: 'Future', color: '#4299E1', tasks: [] }, missed: { title: 'Missed', color: '#F59E0B', tasks: [] }, notplanned: { title: 'Not Planned', color: '#A1A1AA', tasks: [] } };
+    poolTasks.forEach(t => poolKanbanLanes[categorizeByDeadline(t)].tasks.push(t));
+
+    // ── DailyZen scoring for pool tasks ──
+    const scorePoolTask = (task) => {
+      const text = ((task.content || '') + ' ' + (task.reflection?.deadline || '') + ' ' + (task.reflection?.motivation || '') + ' ' + (task.reflection?.complexity || '')).toLowerCase();
+      let score = 0;
+      if (/complex|difficult|challenging|research|design|build|create|architect|strategic|analysis|write|plan/.test(text)) score += 3;
+      if (/deep|focus|hard|major|important|critical|key|vital|crucial/.test(text)) score += 2;
+      if (/urgent|asap|today|deadline|must|required|client|boss|team|meeting|blocking/.test(text)) score += 1;
+      if (/quick|simple|easy|minor|small|brief|short|just|routine|admin/.test(text)) score -= 2;
+      return score;
     };
 
-    return (
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-          <span style={{ fontSize: 14, fontWeight: 600, color: '#71717A' }}>Pool:</span>
-          <select value={selectedPoolId || ''} onChange={e => setSelectedPoolId(e.target.value)} style={{ ...styles.input, flex: 1 }}>
-            <option value="">— Select a Pool —</option>
-            {pools.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-        </div>
+    // ── WorkIQ classification for pool tasks ──
+    const classifyPoolTask = (task) => {
+      const text = ((task.content || '') + ' ' + (task.reflection?.deadline || '') + ' ' + (task.reflection?.motivation || '') + ' ' + (task.reflection?.complexity || '') + ' ' + (task.reflection?.outcome || '')).toLowerCase();
+      const urgentSignals   = /urgent|asap|today|tonight|deadline|now|must|blocking|waiting|client|boss|critical/.test(text);
+      const familiarSignals = /routine|regular|standard|usual|same|again|normal|everyday|process|procedure|update|review|check/.test(text);
+      const mindfulSignals  = /want|love|passion|excited|learn|grow|develop|explore|creative|interesting|curious|support|mentor/.test(text);
+      const newWorkSignals  = /new|partner|team|vendor|collaborate|together|meeting|brainstorm|align|coordinate|external|help/.test(text);
+      const weakSignals     = /hate|avoid|dread|bad at|not good|struggle|difficult|outsource|delegate|someone else|not my|should not/.test(text);
+      if (weakSignals) return 'q4';
+      if (newWorkSignals && !familiarSignals) return 'q3';
+      if (mindfulSignals && !familiarSignals) return 'q2';
+      if (urgentSignals || familiarSignals) return 'q1';
+      if (/complex|difficult|research|build|create/.test(text)) return 'q2';
+      return 'q1';
+    };
 
-        {!selectedPoolId && <EmptyState icon={<Icons.Layers className="w-8 h-8" />} message="Select a Pool to see its tasks" />}
-
+    // ── Pool selector + Relationship Graph toggle (always shown at top) ──
+    const PoolHeader = () => (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 14, fontWeight: 600, color: '#71717A' }}>Pool:</span>
+        <select value={selectedPoolId || ''} onChange={e => setSelectedPoolId(e.target.value)} style={{ ...styles.input, flex: 1, maxWidth: 300 }}>
+          <option value="">— Select a Pool —</option>
+          {pools.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
         {pool && (
-          <div>
-            <div style={{ display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
-              <div style={styles.poolMetaChip}><span style={{ color: '#6366F1', fontWeight: 700 }}>⊕</span> {pool.name}</div>
-              {pool.completionDate && <div style={styles.poolMetaChip}><Icons.Calendar className="w-3 h-3" /> {pool.completionDate}</div>}
-              <div style={styles.poolMetaChip}>{poolTasks.length} tasks</div>
-            </div>
-
-            {poolTasks.length === 0 ? (
-              <EmptyState icon={<Icons.Layers className="w-8 h-8" />} message="No tasks assigned to this pool yet. Use Focus Mode to add tasks." />
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {poolTasks.map(task => {
-                  const rels = getRelLabel(task.id);
-                  return (
-                    <div key={task.id} style={{ ...styles.taskCard, borderLeft: '3px solid #6366F1' }}>
-                      <div style={styles.taskCardHeader}>
-                        <button style={styles.checkbox} onClick={() => onCompleteTask(task.id)} />
-                        <span style={styles.taskCardTitle}>{task.content}</span>
-                      </div>
-                      {rels.length > 0 && (
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-                          {rels.map((r, i) => {
-                            const rt = RELATIONSHIP_TYPES.find(x => x.key === r.type);
-                            const other = tasks.find(t => t.id === (r.fromTaskId === task.id ? r.toTaskId : r.fromTaskId));
-                            return (
-                              <span key={i} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 4, backgroundColor: `${rt?.color}20`, color: rt?.color, fontWeight: 600 }}>
-                                {rt?.icon} {rt?.label}: {other?.content?.substring(0, 20) || '…'}
-                              </span>
-                            );
-                          })}
-                        </div>
-                      )}
-                      <div style={styles.taskCardActions}>
-                        {!isTimerRunning(task.id) && !isTimerPaused(task.id) && <button style={styles.timerBtn} onClick={() => onStartTimer(task.id)}><Icons.Play className="w-3.5 h-3.5" /></button>}
-                        {isTimerRunning(task.id) && <><span style={{ ...styles.timerDisplay, color: '#FF6B6B', fontWeight: 600 }}>{formatTimer(getElapsedSeconds(task.id))}</span><button style={styles.timerBtn} onClick={() => onPauseTimer(task.id)}><Icons.Pause className="w-3.5 h-3.5" /></button></>}
-                        {isTimerPaused(task.id) && <><span style={styles.timerDisplay}>{formatTimer(getElapsedSeconds(task.id))}</span><button style={styles.timerBtn} onClick={() => onStartTimer(task.id)}><Icons.Play className="w-3.5 h-3.5" /></button></>}
-                        {(isTimerRunning(task.id) || isTimerPaused(task.id)) && <button style={styles.timerBtn} onClick={() => onStopTimer(task.id)}><Icons.Square /></button>}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          <label style={styles.toggleLabel}>
+            <input type="checkbox" checked={showRelationshipGraph} onChange={e => setShowRelationshipGraph(e.target.checked)} />
+            Relationship Graph
+          </label>
+        )}
+        {pool && (
+          <div style={styles.poolMetaChip}>{poolTasks.length} tasks</div>
         )}
       </div>
     );
+
+    if (!selectedPoolId) return <><PoolHeader /><EmptyState icon={<Icons.Layers className="w-8 h-8" />} message="Select a Pool to see its tasks" /></>;
+
+    // Relationship Graph overrides strategy
+    if (showRelationshipGraph && pool) return (
+      <><PoolHeader />
+        <RelationshipGraph pool={pool} tasks={poolTasks} allTasks={tasks} relationships={poolRels} onTaskClick={(taskId) => onStartFocus(taskId)} />
+      </>
+    );
+
+    if (!pool) return <PoolHeader />;
+
+    // ── LIST strategy ──
+    if (poolStrategyView === 'list') return (
+      <>
+        <PoolHeader />
+        {poolTasks.length === 0
+          ? <EmptyState icon={<Icons.Layers className="w-8 h-8" />} message="No tasks assigned to this pool yet. Use Focus Mode to add tasks." />
+          : <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{poolTasks.map(task => <TaskCard key={task.id} task={task} />)}</div>
+        }
+      </>
+    );
+
+    // ── KANBAN strategy ──
+    if (poolStrategyView === 'kanban') return (
+      <>
+        <PoolHeader />
+        <div style={styles.kanbanContainer}>
+          {Object.entries(poolKanbanLanes).map(([key, lane]) => (
+            <div key={key} style={styles.kanbanLane}>
+              <div style={{ ...styles.kanbanLaneHeader, borderTopColor: lane.color }}>
+                <span style={styles.kanbanLaneTitle}>{lane.title}</span>
+                <span style={{ ...styles.kanbanLaneCount, backgroundColor: lane.color }}>{lane.tasks.length}</span>
+              </div>
+              <div style={styles.kanbanLaneBody}>
+                {lane.tasks.length === 0 ? <div style={styles.kanbanEmpty}>No tasks</div> : lane.tasks.map(t => <TaskCard key={t.id} task={t} compact />)}
+              </div>
+            </div>
+          ))}
+        </div>
+      </>
+    );
+
+    // ── DAILYZEN strategy ──
+    if (poolStrategyView === 'dailyzen') {
+      const sorted = [...poolTasks].sort((a, b) => scorePoolTask(b) - scorePoolTask(a));
+      const deepWork  = sorted.slice(0, 1);
+      const necessity = sorted.slice(1, 4);
+      const lightenUp = sorted.slice(4, 9);
+      const DZSection = ({ title, emoji, color, bgColor, tasks, limit, hint }) => (
+        <div style={{ backgroundColor: bgColor, borderRadius: 12, padding: 16, borderLeft: `4px solid ${color}`, marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+            <span style={{ fontSize: 22 }}>{emoji}</span>
+            <div style={{ flex: 1 }}><div style={{ fontSize: 14, fontWeight: 700, color: '#18181B' }}>{title}</div><div style={{ fontSize: 11, color: '#71717A' }}>{hint}</div></div>
+            <span style={{ fontSize: 11, fontWeight: 700, color: 'white', backgroundColor: color, padding: '2px 10px', borderRadius: 100 }}>{tasks.length}/{limit}</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+            {tasks.length === 0 ? <div style={{ fontSize: 13, color: '#A1A1AA', fontStyle: 'italic' }}>Nothing here</div> : tasks.map(t => <TaskCard key={t.id} task={t} />)}
+          </div>
+        </div>
+      );
+      return (
+        <>
+          <PoolHeader />
+          <div style={{ backgroundColor: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#92400E' }}>
+            ✨ <strong>DailyZen</strong> · AI picks focus from <strong>{pool.name}</strong> — 1 deep, 3 necessity, 5 light.
+          </div>
+          {poolTasks.length === 0
+            ? <EmptyState icon={<Icons.Layers className="w-8 h-8" />} message="No tasks in this pool yet." />
+            : <><DZSection title="Deep Work" emoji="🧠" color="#6366F1" bgColor="#F5F3FF" tasks={deepWork} limit={1} hint="One task that demands full attention" /><DZSection title="Necessity" emoji="⚡" color="#F59E0B" bgColor="#FFFBEB" tasks={necessity} limit={3} hint="Three things to move forward today" /><DZSection title="Lighten Up" emoji="🌊" color="#10B981" bgColor="#F0FDF4" tasks={lightenUp} limit={5} hint="Five easier tasks to keep momentum" /></>
+          }
+        </>
+      );
+    }
+
+    // ── WORKIQ 4×4 strategy ──
+    if (poolStrategyView === 'workiq') {
+      const quadrants = {
+        q1: { tasks: [], color: '#10B981', bg: '#F0FDF4', label: 'Standard Work',      sub: 'Work that I am good at',                    emoji: '✅' },
+        q2: { tasks: [], color: '#6366F1', bg: '#F5F3FF', label: 'Mindful Work',        sub: 'Work I want to do & need support',           emoji: '🧘' },
+        q3: { tasks: [], color: '#0EA5E9', bg: '#F0F9FF', label: 'New Work',            sub: 'Work I can do with partners / vendors',      emoji: '🤝' },
+        q4: { tasks: [], color: '#EF4444', bg: '#FEF2F2', label: 'Needs Replacement',   sub: 'Work I am not good at — find someone',      emoji: '🔄' },
+      };
+      poolTasks.forEach(t => quadrants[classifyPoolTask(t)].tasks.push(t));
+      const QCell = ({ qKey }) => {
+        const q = quadrants[qKey];
+        return (
+          <div style={{ backgroundColor: q.bg, borderRadius: 12, padding: 14, border: `2px solid ${q.color}30`, minHeight: 180, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, borderBottom: `1px solid ${q.color}30`, paddingBottom: 8 }}>
+              <span style={{ fontSize: 18 }}>{q.emoji}</span>
+              <div><div style={{ fontSize: 13, fontWeight: 700, color: q.color }}>{q.label}</div><div style={{ fontSize: 11, color: '#71717A', lineHeight: 1.3 }}>{q.sub}</div></div>
+              <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, backgroundColor: q.color, color: 'white', borderRadius: 100, padding: '2px 8px' }}>{q.tasks.length}</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1, overflowY: 'auto', maxHeight: 260 }}>
+              {q.tasks.length === 0 ? <div style={{ fontSize: 12, color: '#A1A1AA', fontStyle: 'italic', marginTop: 8 }}>No tasks here</div> : q.tasks.map(t => <TaskCard key={t.id} task={t} compact />)}
+            </div>
+          </div>
+        );
+      };
+      return (
+        <>
+          <PoolHeader />
+          <div style={{ backgroundColor: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#0369A1' }}>
+            🧩 <strong>WorkIQ 4×4</strong> · AI slots <strong>{pool.name}</strong> tasks by familiarity &amp; intent.
+          </div>
+          {poolTasks.length === 0
+            ? <EmptyState icon={<Icons.Layers className="w-8 h-8" />} message="No tasks in this pool yet." />
+            : <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}><QCell qKey="q1" /><QCell qKey="q2" /><QCell qKey="q3" /><QCell qKey="q4" /></div>
+          }
+        </>
+      );
+    }
+
+    return <PoolHeader />;
   };
 
-  // ─── NEW: Pod View ───
+  // Pod View
   const PodView = () => {
     const today = todayStr();
     const pod = pods.find(p => p.id === selectedPodId);
@@ -1714,9 +2067,9 @@ function WorkMode({
                   const active = isDayActive(d);
                   if (!active) return <div key={d} style={{ textAlign: 'center', fontSize: 12, color: '#E4E4E7' }}>·</div>;
                   const log = getPodLog(pod.id, task.id, d);
-                  const canEdit = d >= addDays(today, -5);
+                  const canEdit = d <= today && d >= addDays(today, -7);
                   return (
-                    <div key={d} style={{ textAlign: 'center', cursor: canEdit ? 'pointer' : 'default' }} title={canEdit ? 'Click to cycle: planned → done → missed' : 'Locked'} onClick={() => canEdit && setPodLog(pod.id, task.id, d, { status: cycleStatus(log.status) })}>
+                    <div key={d} style={{ textAlign: 'center', cursor: canEdit ? 'pointer' : 'default', opacity: d > today ? 0.35 : 1 }} title={d > today ? 'Future dates are locked' : canEdit ? 'Click to cycle: planned → done → missed' : 'Locked (older than 7 days)'} onClick={() => canEdit && setPodLog(pod.id, task.id, d, { status: cycleStatus(log.status) })}>
                       <span style={{ fontSize: 14 }}>{statusIcon(log.status)}</span>
                     </div>
                   );
@@ -1730,14 +2083,14 @@ function WorkMode({
                     if (!active) return <div key={d} />;
                     const log = getPodLog(pod.id, task.id, d);
                     const val = (log.trackerValues || {})[field.id] || '';
-                    const canEdit = d >= addDays(today, -5);
+                    const canEdit = d <= today && d >= addDays(today, -7);
                     if (field.type === 'checkbox') return (
-                      <div key={d} style={{ textAlign: 'center' }}>
+                      <div key={d} style={{ textAlign: 'center', opacity: d > today ? 0.35 : 1 }}>
                         <input type="checkbox" checked={val === 'true'} disabled={!canEdit} onChange={e => setPodLog(pod.id, task.id, d, { trackerValues: { ...(log.trackerValues || {}), [field.id]: e.target.checked ? 'true' : 'false' } })} style={{ cursor: canEdit ? 'pointer' : 'default' }} />
                       </div>
                     );
                     return (
-                      <input key={d} type="text" value={val} disabled={!canEdit} onChange={e => setPodLog(pod.id, task.id, d, { trackerValues: { ...(log.trackerValues || {}), [field.id]: e.target.value } })} style={{ width: '100%', fontSize: 10, padding: '2px 3px', border: '1px solid #E4E4E7', borderRadius: 3, textAlign: 'center', backgroundColor: canEdit ? 'white' : '#F9FAFB', color: '#18181B' }} />
+                      <input key={d} type="text" value={val} disabled={!canEdit} onChange={e => setPodLog(pod.id, task.id, d, { trackerValues: { ...(log.trackerValues || {}), [field.id]: e.target.value } })} style={{ width: '100%', fontSize: 10, padding: '2px 3px', border: '1px solid #E4E4E7', borderRadius: 3, textAlign: 'center', backgroundColor: canEdit ? 'white' : '#F9FAFB', color: canEdit ? '#18181B' : '#A1A1AA', opacity: d > today ? 0.35 : 1 }} />
                     );
                   })}
                 </div>
@@ -1750,7 +2103,7 @@ function WorkMode({
             {[['planned','⬜','#D4D4D8'],['completed','✅','#10B981'],['missed','❌','#EF4444']].map(([s,icon,color]) => (
               <span key={s} style={{ fontSize: 11, color, display: 'flex', alignItems: 'center', gap: 4 }}>{icon} {s}</span>
             ))}
-            <span style={{ fontSize: 11, color: '#A1A1AA' }}>· = not scheduled · click to cycle · locked after 5 days</span>
+            <span style={{ fontSize: 11, color: '#A1A1AA' }}>· = not scheduled · click to cycle · future dates locked · editable: today &amp; past 7 days</span>
           </div>
         </>
       );
@@ -1793,58 +2146,181 @@ function WorkMode({
     );
   };
 
-  const EnergyView = () => {
-    const categorizeEnergy = (task) => {
-      const c = task.content.toLowerCase();
-      const o = (task.reflection?.outcome || '').toLowerCase();
-      const text = c + ' ' + o;
-      if (/complex|difficult|build|create|research|design|major/.test(text)) return 'high';
-      if (/quick|simple|easy|minor|routine|brief/.test(text)) return 'low';
-      return 'medium';
+  // ── DailyZen View (AI-powered 1-3-5 focus selection) ──
+  const DailyZenView = () => {
+    const scoreTask = (task) => {
+      const text = ((task.content || '') + ' ' + (task.reflection?.deadline || '') + ' ' + (task.reflection?.motivation || '') + ' ' + (task.reflection?.complexity || '')).toLowerCase();
+      let score = 0;
+      // Depth signals → Deep Work
+      if (/complex|difficult|challenging|research|design|build|create|architect|strategic|analysis|write|plan/.test(text)) score += 3;
+      if (/deep|focus|hard|major|important|critical|key|vital|crucial/.test(text)) score += 2;
+      // Urgency signals → Necessity
+      if (/urgent|asap|today|deadline|must|required|client|boss|team|meeting|blocking/.test(text)) score += 1;
+      // Effort signals  
+      if (/quick|simple|easy|minor|small|brief|short|just|routine|admin/.test(text)) score -= 2;
+      return score;
     };
-    const levels = { high: { title: 'High Energy Required', emoji: '🔥', color: '#EF4444', description: 'Deep work', tasks: [] }, medium: { title: 'Medium Energy', emoji: '⚡', color: '#F59E0B', description: 'Regular tasks', tasks: [] }, low: { title: 'Low Energy', emoji: '🌊', color: '#10B981', description: 'Easy wins', tasks: [] } };
-    pendingTasks.forEach(t => levels[categorizeEnergy(t)].tasks.push(t));
+
+    const sorted = [...waveTasks].sort((a, b) => scoreTask(b) - scoreTask(a));
+    const deepWork   = sorted.slice(0, 1);
+    const necessity  = sorted.slice(1, 4);
+    const lightenUp  = sorted.slice(4, 9);
+
+    const Section = ({ title, emoji, color, bgColor, tasks, limit, hint }) => (
+      <div style={{ backgroundColor: bgColor, borderRadius: 12, padding: 16, borderLeft: `4px solid ${color}`, marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+          <span style={{ fontSize: 22 }}>{emoji}</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#18181B' }}>{title}</div>
+            <div style={{ fontSize: 11, color: '#71717A' }}>{hint}</div>
+          </div>
+          <span style={{ fontSize: 11, fontWeight: 700, color: 'white', backgroundColor: color, padding: '2px 10px', borderRadius: 100 }}>
+            {tasks.length}/{limit}
+          </span>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+          {tasks.length === 0
+            ? <div style={{ fontSize: 13, color: '#A1A1AA', fontStyle: 'italic', padding: '6px 0' }}>Nothing assigned here today</div>
+            : tasks.map(t => <TaskCard key={t.id} task={t} />)
+          }
+        </div>
+      </div>
+    );
+
     return (
-      <div style={styles.energyContainer}>
-        {['high', 'medium', 'low'].map(key => {
-          const lv = levels[key];
-          return (
-            <div key={key} style={{ ...styles.energySection, borderLeftColor: lv.color }}>
-              <div style={styles.energyHeader}>
-                <span style={styles.energyEmoji}>{lv.emoji}</span>
-                <div><div style={styles.energyTitle}>{lv.title}</div><div style={styles.energyDesc}>{lv.description}</div></div>
-                <span style={{ ...styles.energyCount, backgroundColor: lv.color }}>{lv.tasks.length}</span>
-              </div>
-              <div style={styles.energyBody}>
-                {lv.tasks.length === 0 ? <div style={styles.kanbanEmpty}>No tasks</div> : lv.tasks.map(t => <TaskCard key={t.id} task={t} />)}
-              </div>
+      <div>
+        <div style={{ backgroundColor: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#92400E' }}>
+          ✨ <strong>DailyZen</strong> · AI picks your focus for today — 1 deep task, 3 necessities, 5 light waves.
+        </div>
+        {waveTasks.length === 0
+          ? <EmptyState icon={<Icons.Briefcase className="w-8 h-8" />} message="No waves to zen today. Add tasks in Freedom mode!" action={{ label: 'Go to Freedom Mode', onClick: onGoToFreedom }} />
+          : <>
+              <Section title="Deep Work" emoji="🧠" color="#6366F1" bgColor="#F5F3FF" tasks={deepWork} limit={1} hint="One task that demands your full attention" />
+              <Section title="Necessity" emoji="⚡" color="#F59E0B" bgColor="#FFFBEB" tasks={necessity} limit={3} hint="Three things you must move forward today" />
+              <Section title="Lighten Up" emoji="🌊" color="#10B981" bgColor="#F0FDF4" tasks={lightenUp} limit={5} hint="Five easier waves to keep momentum flowing" />
+            </>
+        }
+      </div>
+    );
+  };
+
+  // ── WorkIQ 4x4 View (Eisenhower-inspired quadrant matrix) ──
+  const WorkIQ4x4View = () => {
+    const classifyTask = (task) => {
+      const text = ((task.content || '') + ' ' + (task.reflection?.deadline || '') + ' ' + (task.reflection?.motivation || '') + ' ' + (task.reflection?.complexity || '') + ' ' + (task.reflection?.outcome || '')).toLowerCase();
+      // Urgency score
+      const urgentSignals = /urgent|asap|today|tonight|deadline|now|must|blocking|waiting|client|boss|critical/.test(text);
+      // Familiarity / confidence score → Standard Work
+      const familiarSignals = /routine|regular|standard|usual|same|again|normal|everyday|process|procedure|update|review|check/.test(text);
+      // Growth / desire signals → Mindful Work
+      const mindfulSignals = /want|love|passion|excited|learn|grow|develop|explore|creative|interesting|curious|support|mentor/.test(text);
+      // Collaboration / new territory signals → New Work
+      const newWorkSignals = /new|partner|team|vendor|collaborate|together|meeting|brainstorm|align|coordinate|external|help/.test(text);
+      // Weakness / avoidance signals → Replacement needed
+      const weakSignals = /hate|avoid|dread|bad at|not good|struggle|difficult|outsource|delegate|someone else|not my|should not/.test(text);
+
+      if (weakSignals) return 'q4';
+      if (newWorkSignals && !familiarSignals) return 'q3';
+      if (mindfulSignals && !familiarSignals) return 'q2';
+      if (urgentSignals || familiarSignals) return 'q1';
+      // Fallback: use reflection urgency/complexity
+      if (/complex|difficult|research|build|create/.test(text)) return 'q2';
+      if (/quick|simple|easy|minor/.test(text)) return 'q1';
+      return 'q1';
+    };
+
+    const quadrants = {
+      q1: { tasks: [], color: '#10B981', bg: '#F0FDF4', label: 'Standard Work', sub: 'Work that I am good at', emoji: '✅', pos: 'top-left' },
+      q2: { tasks: [], color: '#6366F1', bg: '#F5F3FF', label: 'Mindful Work',  sub: 'Work I want to do & need support', emoji: '🧘', pos: 'top-right' },
+      q3: { tasks: [], color: '#0EA5E9', bg: '#F0F9FF', label: 'New Work',      sub: 'Work I can do with partners / vendors', emoji: '🤝', pos: 'bottom-left' },
+      q4: { tasks: [], color: '#EF4444', bg: '#FEF2F2', label: 'Needs Replacement', sub: 'Work I am not good at — find someone', emoji: '🔄', pos: 'bottom-right' },
+    };
+    waveTasks.forEach(t => quadrants[classifyTask(t)].tasks.push(t));
+
+    const QuadrantCell = ({ qKey }) => {
+      const q = quadrants[qKey];
+      return (
+        <div style={{ backgroundColor: q.bg, borderRadius: 12, padding: 14, border: `2px solid ${q.color}30`, minHeight: 180, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, borderBottom: `1px solid ${q.color}30`, paddingBottom: 8 }}>
+            <span style={{ fontSize: 18 }}>{q.emoji}</span>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: q.color }}>{q.label}</div>
+              <div style={{ fontSize: 11, color: '#71717A', lineHeight: 1.3 }}>{q.sub}</div>
             </div>
-          );
-        })}
+            <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, backgroundColor: q.color, color: 'white', borderRadius: 100, padding: '2px 8px' }}>{q.tasks.length}</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1, overflowY: 'auto', maxHeight: 260 }}>
+            {q.tasks.length === 0
+              ? <div style={{ fontSize: 12, color: '#A1A1AA', fontStyle: 'italic', marginTop: 8 }}>No waves here</div>
+              : q.tasks.map(t => <TaskCard key={t.id} task={t} compact />)
+            }
+          </div>
+        </div>
+      );
+    };
+
+    return (
+      <div>
+        <div style={{ backgroundColor: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#0369A1' }}>
+          🧩 <strong>WorkIQ 4×4</strong> · AI slots your waves by familiarity & intent — find where to invest your energy.
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <QuadrantCell qKey="q1" />
+          <QuadrantCell qKey="q2" />
+          <QuadrantCell qKey="q3" />
+          <QuadrantCell qKey="q4" />
+        </div>
+        <div style={{ marginTop: 12, fontSize: 11, color: '#A1A1AA', textAlign: 'center' }}>
+          AI categorisation based on task content &amp; Focus Mode answers · reclassify by editing task in Focus Mode
+        </div>
       </div>
     );
   };
 
   return (
     <div>
-      {/* Header */}
+      {/* Header — Two-level filter */}
       <div style={styles.workHeaderWithSelector}>
         <div style={styles.workTitleRow}>
-          <span style={styles.workTitleText}>Visualise your work in</span>
-          <select value={workView} onChange={e => setWorkView(e.target.value)} style={styles.viewSelector}>
-            <option value="table">Table</option>
-            <option value="kanban">Kanban</option>
-            <option value="energy">Energy</option>
-            <option value="pool">⊕ Pools</option>
-            <option value="pod">↻ Pods</option>
+          {/* Level 1: Context filter */}
+          <span style={styles.workTitleText}>View</span>
+          <select
+            value={contextFilter}
+            onChange={e => setContextFilter(e.target.value)}
+            style={styles.viewSelector}
+          >
+            <option value="waves">⚡ Waves</option>
+            <option value="pools">⊕ Pools</option>
+            <option value="pods">↻ Pods</option>
           </select>
+
+          {/* Level 2: Strategy filter — for Waves and Pools */}
+          {(contextFilter === 'waves' || contextFilter === 'pools') && (
+            <>
+              <span style={{ ...styles.workTitleText, marginLeft: 8 }}>as</span>
+              <select
+                value={contextFilter === 'waves' ? strategyView : poolStrategyView}
+                onChange={e => contextFilter === 'waves' ? setStrategyView(e.target.value) : setPoolStrategyView(e.target.value)}
+                style={styles.viewSelector}
+              >
+                <option value="list">List</option>
+                <option value="kanban">Kanban</option>
+                <option value="dailyzen">DailyZen</option>
+                <option value="workiq">WorkIQ 4×4</option>
+              </select>
+            </>
+          )}
         </div>
         <p style={styles.workSubtitle}>
-          {workView === 'table' && 'All tasks in a detailed table'}
-          {workView === 'kanban' && 'Tasks organised by deadline'}
-          {workView === 'energy' && 'Tasks grouped by energy required'}
-          {workView === 'pool' && 'Tasks inside a selected Pool with relationships'}
-          {workView === 'pod' && 'Recurring Pod tasks — calendar heatmap view'}
+          {contextFilter === 'waves'  && strategyView === 'list'    && `${waveTasks.length} standalone waves · full detail list`}
+          {contextFilter === 'waves'  && strategyView === 'kanban'  && 'Waves organised by deadline'}
+          {contextFilter === 'waves'  && strategyView === 'dailyzen' && '1 deep · 3 necessity · 5 lighten-up — AI curated'}
+          {contextFilter === 'waves'  && strategyView === 'workiq'  && 'AI-slotted into your WorkIQ 4×4 quadrants'}
+          {contextFilter === 'pools'  && poolStrategyView === 'list'     && 'Pool tasks · full detail list'}
+          {contextFilter === 'pools'  && poolStrategyView === 'kanban'   && 'Pool tasks organised by deadline'}
+          {contextFilter === 'pools'  && poolStrategyView === 'dailyzen' && 'Pool tasks · AI curated 1-3-5 focus'}
+          {contextFilter === 'pools'  && poolStrategyView === 'workiq'   && 'Pool tasks · WorkIQ 4×4 quadrants'}
+          {contextFilter === 'pods'   && 'Recurring Pod tasks — calendar heatmap view'}
         </p>
       </div>
 
@@ -1868,22 +2344,17 @@ function WorkMode({
         </div>
       )}
 
-      {pendingTasks.length === 0 && completedTasks.length === 0 && workView !== 'pool' && workView !== 'pod' ? (
-        <EmptyState icon={<Icons.Briefcase className="w-8 h-8" />} message="No tasks yet. Add some in Freedom mode!" action={{ label: 'Go to Freedom Mode', onClick: onGoToFreedom }} />
+      {/* View rendering */}
+      {contextFilter === 'waves' && waveTasks.length === 0 && strategyView !== 'dailyzen' && strategyView !== 'workiq' ? (
+        <EmptyState icon={<Icons.Briefcase className="w-8 h-8" />} message="No standalone waves. Add tasks in Freedom mode, or they may be in Pools / Pods!" action={{ label: 'Go to Freedom Mode', onClick: onGoToFreedom }} />
       ) : (
         <>
-          {workView === 'table' && <TableView />}
-          {workView === 'kanban' && <KanbanView />}
-          {workView === 'energy' && <EnergyView />}
-          {workView === 'pool' && <PoolView />}
-          {workView === 'pod' && <PodView />}
-
-          {workView !== 'pool' && workView !== 'pod' && completedTasks.length > 0 && (
-            <div style={styles.completedSection}>
-              <p style={styles.completedLabel}>Completed</p>
-              {completedTasks.map(t => <div key={t.id} style={styles.completedTask}>{t.content}</div>)}
-            </div>
-          )}
+          {contextFilter === 'waves'  && strategyView === 'list'    && <ListWavesView />}
+          {contextFilter === 'waves'  && strategyView === 'kanban'  && <KanbanView />}
+          {contextFilter === 'waves'  && strategyView === 'dailyzen' && <DailyZenView />}
+          {contextFilter === 'waves'  && strategyView === 'workiq'  && <WorkIQ4x4View />}
+          {contextFilter === 'pools'  && <PoolView />}
+          {contextFilter === 'pods'   && <PodView />}
         </>
       )}
     </div>
@@ -1891,37 +2362,260 @@ function WorkMode({
 }
 
 // ============================================================================
-// REVIEW MODE
+// RELATIONSHIP GRAPH - Visual representation of task relationships
 // ============================================================================
-function ReviewMode({ stats, reviews, tasks }) {
+function RelationshipGraph({ pool, tasks, allTasks, relationships, onTaskClick }) {
+  const [hoveredNode, setHoveredNode] = useState(null);
+  
+  if (tasks.length === 0) {
+    return <EmptyState icon={<Icons.GitBranch className="w-8 h-8" />} message="No tasks in this pool to visualize" />;
+  }
+
+  // Calculate positions for nodes in a circular layout
+  const centerX = 300;
+  const centerY = 200;
+  const radius = 150;
+  const nodePositions = {};
+  
+  tasks.forEach((task, idx) => {
+    const angle = (2 * Math.PI * idx) / tasks.length - Math.PI / 2;
+    nodePositions[task.id] = {
+      x: centerX + radius * Math.cos(angle),
+      y: centerY + radius * Math.sin(angle),
+    };
+  });
+
+  return (
+    <div style={styles.graphContainer}>
+      <p style={styles.graphTitle}>Relationship Graph for Pool: {pool.name}</p>
+      <svg width="600" height="400" style={styles.graphSvg}>
+        {/* Draw relationship arrows */}
+        {relationships.map((rel, idx) => {
+          const from = nodePositions[rel.fromTaskId];
+          const to = nodePositions[rel.toTaskId];
+          if (!from || !to) return null;
+          
+          const rt = RELATIONSHIP_TYPES.find(x => x.key === rel.type);
+          
+          // Calculate arrow direction
+          const dx = to.x - from.x;
+          const dy = to.y - from.y;
+          const len = Math.sqrt(dx * dx + dy * dy);
+          const nx = dx / len;
+          const ny = dy / len;
+          
+          // Offset from node centers
+          const startX = from.x + nx * 30;
+          const startY = from.y + ny * 30;
+          const endX = to.x - nx * 30;
+          const endY = to.y - ny * 30;
+          
+          return (
+            <g key={idx}>
+              <line
+                x1={startX}
+                y1={startY}
+                x2={endX}
+                y2={endY}
+                stroke={rt?.color || '#94A3B8'}
+                strokeWidth="2"
+                markerEnd="url(#arrowhead)"
+              />
+              <text
+                x={(startX + endX) / 2}
+                y={(startY + endY) / 2 - 8}
+                fill={rt?.color || '#71717A'}
+                fontSize="10"
+                textAnchor="middle"
+              >
+                {rt?.label}
+              </text>
+            </g>
+          );
+        })}
+        
+        {/* Arrow marker definition */}
+        <defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#6366F1" />
+          </marker>
+        </defs>
+        
+        {/* Draw task nodes */}
+        {tasks.map(task => {
+          const pos = nodePositions[task.id];
+          const isHovered = hoveredNode === task.id;
+          
+          return (
+            <g 
+              key={task.id}
+              style={{ cursor: 'pointer' }}
+              onClick={() => onTaskClick(task.id)}
+              onMouseEnter={() => setHoveredNode(task.id)}
+              onMouseLeave={() => setHoveredNode(null)}
+            >
+              <circle
+                cx={pos.x}
+                cy={pos.y}
+                r={isHovered ? 35 : 28}
+                fill={isHovered ? '#6366F1' : 'white'}
+                stroke="#6366F1"
+                strokeWidth="2"
+              />
+              <text
+                x={pos.x}
+                y={pos.y}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fill={isHovered ? 'white' : '#18181B'}
+                fontSize="10"
+                fontWeight="500"
+              >
+                {task.content.substring(0, 12)}…
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+      <p style={styles.graphHint}>Click on a node to focus on that task</p>
+    </div>
+  );
+}
+
+// ============================================================================
+// REVIEW MODE - Updated with completed tasks and editing
+// ============================================================================
+function ReviewMode({ stats, reviews, tasks, completedTasks, onReactivateTask, onUpdateReview }) {
+  const [editingReviewId, setEditingReviewId] = useState(null);
+  const [editRating, setEditRating] = useState(0);
+  const [editImprovements, setEditImprovements] = useState('');
+
+  const startEditReview = (review) => {
+    setEditingReviewId(review.taskId);
+    setEditRating(review.satisfactionRating);
+    setEditImprovements(review.improvements || '');
+  };
+
+  const saveEditReview = () => {
+    if (editingReviewId && editRating > 0) {
+      onUpdateReview(editingReviewId, editRating, editImprovements);
+      setEditingReviewId(null);
+    }
+  };
+
+  const getTaskReview = (taskId) => reviews.find(r => r.taskId === taskId);
+
   return (
     <div>
-      <div style={styles.workHeader}><h3 style={styles.workTitle}>Review & Learn</h3><p style={styles.workSubtitle}>Track your progress and patterns.</p></div>
+      <div style={styles.workHeader}>
+        <h3 style={styles.workTitle}>Review & Learn</h3>
+        <p style={styles.workSubtitle}>Track your progress and patterns.</p>
+      </div>
+      
       <div style={styles.statsGrid}>
         <div style={styles.statCard}><div style={styles.statValue}>{stats.totalCompleted}</div><div style={styles.statLabel}>Completed</div></div>
         <div style={styles.statCard}><div style={{ ...styles.statValue, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>{stats.avgSatisfaction.toFixed(1)}<Icons.Star filled className="w-5 h-5" /></div><div style={styles.statLabel}>Avg Satisfaction</div></div>
         <div style={styles.statCard}><div style={styles.statValue}>{stats.reviewCount}</div><div style={styles.statLabel}>Reviews</div></div>
         <div style={styles.statCard}><div style={styles.statValue}>{stats.pendingCount}</div><div style={styles.statLabel}>Pending</div></div>
       </div>
-      {reviews.length === 0 ? <EmptyState icon={<Icons.BarChart className="w-8 h-8" />} message="Complete tasks and submit reviews to see your progress" /> : (
-        <div>
-          <h4 style={styles.reviewListTitle}>Recent Reviews</h4>
-          <div style={styles.reviewList}>
-            {reviews.slice(0, 5).map((review, idx) => {
-              const task = tasks.find(t => t.id === review.taskId);
+
+      {/* Completed Tasks List */}
+      <div style={{ marginTop: 24 }}>
+        <h4 style={styles.reviewListTitle}>Completed Tasks</h4>
+        {completedTasks.length === 0 ? (
+          <EmptyState icon={<Icons.Check className="w-8 h-8" />} message="Complete tasks to see them here" />
+        ) : (
+          <div style={styles.completedTasksList}>
+            {completedTasks.map(task => {
+              const review = getTaskReview(task.id);
+              const isEditing = editingReviewId === task.id;
+              
+              // Get reflection answers
+              const reasons = task.reflection ? Object.entries(task.reflection).filter(([k, v]) => v && String(v).trim()) : [];
+              
               return (
-                <div key={idx} style={styles.reviewItem}>
-                  <div style={styles.reviewItemHeader}>
-                    <span style={styles.reviewItemTask}>{task?.content || 'Unknown task'}</span>
-                    <div style={styles.reviewItemStars}>{[1, 2, 3, 4, 5].map(s => <Icons.Star key={s} filled={review.satisfactionRating >= s} className="w-3.5 h-3.5" />)}</div>
+                <div key={task.id} style={styles.completedTaskItem}>
+                  {/* Task name with strikethrough */}
+                  <div style={styles.completedTaskHeader}>
+                    <span 
+                      style={styles.completedTaskName}
+                      onClick={() => onReactivateTask(task.id)}
+                      title="Click to reactivate this task"
+                    >
+                      {task.content}
+                    </span>
+                    <button 
+                      style={styles.reactivateBtn}
+                      onClick={() => onReactivateTask(task.id)}
+                      title="Reactivate task"
+                    >
+                      <Icons.RotateCcw className="w-3.5 h-3.5" /> Reactivate
+                    </button>
                   </div>
-                  {review.improvements && <p style={styles.reviewItemText}>{review.improvements}</p>}
+                  
+                  {/* Review section */}
+                  {review && !isEditing && (
+                    <div style={styles.reviewFeedbackSection}>
+                      <div style={styles.reviewRatingRow}>
+                        <div style={styles.reviewStars}>
+                          {[1, 2, 3, 4, 5].map(s => <Icons.Star key={s} filled={review.satisfactionRating >= s} className="w-4 h-4" />)}
+                        </div>
+                        <button style={styles.editReviewBtn} onClick={() => startEditReview(review)}>
+                          <Icons.Edit className="w-3 h-3" /> Edit
+                        </button>
+                      </div>
+                      {review.improvements && (
+                        <p style={styles.reviewImprovementsText}>{review.improvements}</p>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Edit review form */}
+                  {isEditing && (
+                    <div style={styles.editReviewForm}>
+                      <div style={styles.ratingButtons}>
+                        {[1, 2, 3, 4, 5].map(r => (
+                          <button key={r} style={{ ...styles.ratingBtn, ...(editRating === r ? styles.ratingBtnActive : {}) }} onClick={() => setEditRating(r)}>
+                            <Icons.Star filled={editRating >= r} />
+                          </button>
+                        ))}
+                      </div>
+                      <textarea 
+                        placeholder="What could be improved?" 
+                        value={editImprovements} 
+                        onChange={e => setEditImprovements(e.target.value)} 
+                        style={styles.textarea}
+                      />
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button style={styles.primaryBtn} onClick={saveEditReview}>Save</button>
+                        <button style={styles.ghostBtn} onClick={() => setEditingReviewId(null)}>Cancel</button>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {!review && (
+                    <p style={styles.noReviewText}>No review submitted</p>
+                  )}
+                  
+                  {/* Answer bullets (not editable) */}
+                  {reasons.length > 0 && (
+                    <div style={styles.answerBulletsSection}>
+                      <p style={styles.answerBulletsTitle}>Focus Mode Answers:</p>
+                      <ul style={styles.answerBulletsList}>
+                        {reasons.map(([key, value], idx) => (
+                          <li key={idx} style={styles.answerBulletItem}>
+                            <strong style={{ textTransform: 'capitalize' }}>{key}:</strong> {value}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
@@ -1994,53 +2688,9 @@ function VideoModal({ isOpen, onClose, onHideOnStartup, hideOnStartup }) {
             />
             Don't show this on startup
           </label>
-          <button style={styles.primaryBtn} onClick={onClose}>Got it</button>
+          <button style={styles.primaryBtn} onClick={onClose}>Got it!</button>
         </div>
       </div>
-    </div>
-  );
-}
-
-// ============================================================================
-// NAVIGATION DROPDOWN COMPONENT
-// ============================================================================
-function NavDropdown({ label, items, isOpen, onToggle, onClose }) {
-  const menuRef = useRef(null);
-
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) {
-        onClose();
-      }
-    };
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [isOpen, onClose]);
-
-  return (
-    <div style={{ position: 'relative' }} ref={menuRef}>
-      <button
-        style={styles.navLink}
-        onClick={onToggle}
-      >
-        {label} <span style={{ fontSize: 10 }}>▼</span>
-      </button>
-      {isOpen && (
-        <div style={styles.dropdownMenu}>
-          {items.map((item, idx) => (
-            <a
-              key={idx}
-              href={item.url}
-              style={styles.dropdownItem}
-              onClick={onClose}
-            >
-              <span>{item.icon}</span> {item.label}
-            </a>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -2049,124 +2699,190 @@ function NavDropdown({ label, items, isOpen, onToggle, onClose }) {
 // STYLES
 // ============================================================================
 const styles = {
-  app: { minHeight: '100vh', backgroundColor: '#FAFAFA', fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" },
+  app: { minHeight: '100vh', backgroundColor: '#FAFAFA', fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" },
   header: { position: 'sticky', top: 0, backgroundColor: 'white', borderBottom: '1px solid #E4E4E7', zIndex: 100 },
-  headerContent: { maxWidth: '1200px', margin: '0 auto', padding: '12px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
+  headerContent: { maxWidth: '1100px', margin: '0 auto', padding: '12px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
   logo: { display: 'flex', alignItems: 'center', gap: '8px', color: '#FF6B6B', cursor: 'pointer' },
   logoText: { fontSize: '24px', fontWeight: '800', letterSpacing: '-1px' },
   sup: { fontSize: '14px' },
-  headerRight: { display: 'flex', alignItems: 'center', gap: '16px' },
-  greeting: { color: '#71717A', fontSize: '14px' },
-  primaryBtn: { display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 16px', backgroundColor: '#FF6B6B', color: 'white', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: 'pointer' },
-  outlineBtn: { padding: '8px 16px', backgroundColor: 'transparent', color: '#52525B', border: '1px solid #D4D4D8', borderRadius: '8px', fontSize: '14px', cursor: 'pointer' },
-  smallOutlineBtn: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 12px', backgroundColor: 'transparent', color: '#52525B', border: '1px solid #D4D4D8', borderRadius: '6px', fontSize: '13px', cursor: 'pointer' },
-  ghostBtn: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 10px', backgroundColor: 'transparent', color: '#71717A', border: 'none', borderRadius: '6px', fontSize: '14px', cursor: 'pointer' },
-  iconBtn: { width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#FF6B6B', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' },
-  timerBtn: { width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent', color: '#71717A', border: 'none', borderRadius: '6px', cursor: 'pointer' },
-  main: { maxWidth: '1200px', margin: '0 auto', padding: '0 24px' },
-  hero: { textAlign: 'center', padding: '60px 20px 40px' },
-  heroContent: { maxWidth: '600px', margin: '0 auto' },
-  heroTitle: { fontSize: 'clamp(28px, 5vw, 42px)', fontWeight: '800', color: '#18181B', lineHeight: 1.2, marginBottom: '16px' },
-  tWord: { color: '#FF6B6B', display: 'inline-block', minWidth: '140px' },
+  headerRight: { display: 'flex', alignItems: 'center', gap: '12px' },
+  greeting: { fontSize: '14px', color: '#52525B', fontWeight: '500' },
+  primaryBtn: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '8px 16px', backgroundColor: '#FF6B6B', color: 'white', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: 'pointer' },
+  outlineBtn: { padding: '8px 16px', backgroundColor: 'transparent', border: '1px solid #D4D4D8', borderRadius: '8px', fontSize: '14px', fontWeight: '500', cursor: 'pointer', color: '#52525B' },
+  ghostBtn: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 12px', backgroundColor: 'transparent', color: '#71717A', border: 'none', borderRadius: '6px', fontSize: '13px', cursor: 'pointer' },
+  linkBtn: { background: 'none', border: 'none', color: '#FF6B6B', cursor: 'pointer', fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: 4 },
+  main: { maxWidth: '1100px', margin: '0 auto', padding: '0 24px' },
+  hero: { textAlign: 'center', padding: '48px 20px 32px' },
+  heroContent: { maxWidth: '560px', margin: '0 auto' },
+  heroTitle: { fontSize: 'clamp(28px, 5vw, 42px)', fontWeight: '800', color: '#18181B', lineHeight: 1.2, marginBottom: '12px' },
+  tWord: { color: '#FF6B6B', display: 'inline-block', minWidth: '140px', textAlign: 'left' },
   heroSubtitle: { fontSize: '16px', color: '#71717A', lineHeight: 1.6 },
   guestSection: { paddingBottom: '60px' },
-  guestCard: { backgroundColor: 'white', border: '1px solid #E4E4E7', borderRadius: '16px', padding: '24px', maxWidth: '800px', margin: '0 auto', boxShadow: '0 4px 16px rgba(0,0,0,0.04)' },
-  modeNav: { display: 'flex', justifyContent: 'center', gap: '4px', backgroundColor: '#F4F4F5', padding: '4px', borderRadius: '100px', marginBottom: '24px', flexWrap: 'wrap' },
-  modeBtn: { display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', backgroundColor: 'transparent', color: '#71717A', border: 'none', borderRadius: '100px', fontSize: '14px', fontWeight: '500', cursor: 'pointer', transition: 'all 0.2s' },
+  guestCard: { backgroundColor: 'white', border: '1px solid #E4E4E7', borderRadius: '16px', padding: '24px', maxWidth: '900px', margin: '0 auto', boxShadow: '0 4px 16px rgba(0,0,0,0.04)' },
+  modeNav: { display: 'flex', justifyContent: 'center', gap: '6px', backgroundColor: '#F4F4F5', padding: '6px', borderRadius: '100px', marginBottom: '24px', flexWrap: 'wrap' },
+  modeBtn: { display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 18px', backgroundColor: 'transparent', color: '#71717A', border: 'none', borderRadius: '100px', fontSize: '14px', fontWeight: '500', cursor: 'pointer', transition: 'all .2s' },
   modeBtnActive: { backgroundColor: '#FF6B6B', color: 'white' },
-  modeBtnDisabled: { opacity: 0.5, cursor: 'not-allowed' },
+  modeBtnDisabled: { opacity: 0.4, cursor: 'not-allowed' },
+  
+  // Rich Text Input Styles
+  richTextContainer: { marginBottom: 16, border: '1px solid #D4D4D8', borderRadius: 10, overflow: 'hidden', backgroundColor: 'white' },
+  richTextToolbar: { display: 'flex', alignItems: 'center', gap: 4, padding: '8px 12px', borderBottom: '1px solid #E4E4E7', backgroundColor: '#F9FAFB' },
+  formatBtn: { padding: '6px 8px', backgroundColor: 'transparent', border: '1px solid #E4E4E7', borderRadius: 6, cursor: 'pointer', color: '#52525B', display: 'flex', alignItems: 'center' },
+  formatHint: { marginLeft: 'auto', fontSize: 11, color: '#A1A1AA' },
+  richTextArea: { width: '100%', padding: '12px 14px', border: 'none', fontSize: 14, outline: 'none', resize: 'vertical', minHeight: 80, fontFamily: 'inherit', boxSizing: 'border-box' },
+  addTaskBtn: { display: 'flex', alignItems: 'center', gap: 6, margin: '8px 12px 12px', padding: '8px 16px', backgroundColor: '#FF6B6B', color: 'white', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' },
+  
+  focusHint: { fontSize: 13, color: '#71717A', backgroundColor: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 8, padding: '10px 14px', marginBottom: 16 },
+  
+  // Highlighted Focus Button
+  highlightedFocusBtn: { display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 12px', backgroundColor: '#FF6B6B', color: 'white', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', animation: 'pulse 2s infinite' },
+  
+  // Combo Box Styles
+  comboInputRow: { display: 'flex', gap: 8, alignItems: 'center' },
+  comboInput: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', border: '1px solid #D4D4D8', borderRadius: 8, cursor: 'pointer', backgroundColor: 'white', minHeight: 42 },
+  comboSearchInput: { border: 'none', outline: 'none', fontSize: 14, flex: 1, backgroundColor: 'transparent' },
+  comboDropdown: { position: 'absolute', top: '100%', left: 0, right: 0, backgroundColor: 'white', border: '1px solid #E4E4E7', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', padding: 8, zIndex: 100, marginTop: 4 },
+  comboOption: { padding: '8px 12px', borderRadius: 6, cursor: 'pointer', fontSize: 14 },
+  inlineCreateBtn: { display: 'flex', alignItems: 'center', gap: 4, padding: '8px 12px', backgroundColor: '#6366F1', color: 'white', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' },
+  
+  // Work Mode Task Card Styles
+  workTaskCard: { backgroundColor: 'white', border: '1px solid #E4E4E7', borderRadius: 12, padding: 16, marginBottom: 12 },
+  workTaskHeader: { display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 8 },
+  workTaskTitle: { fontSize: 15, fontWeight: 600, color: '#18181B', cursor: 'pointer', flex: 1 },
+  taskMetaRow: { display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' },
+  poolBadge: { fontSize: 11, padding: '2px 8px', borderRadius: 4, backgroundColor: '#6366F115', color: '#6366F1', fontWeight: 600 },
+  podBadge: { fontSize: 11, padding: '2px 8px', borderRadius: 4, backgroundColor: '#0EA5E915', color: '#0EA5E9', fontWeight: 600 },
+  blinkBadge: { fontSize: 11, padding: '2px 8px', borderRadius: 4, backgroundColor: '#10B98115', color: '#10B981', fontWeight: 600 },
+  waveBadge: { fontSize: 11, padding: '2px 8px', borderRadius: 4, backgroundColor: '#10B98115', color: '#10B981', fontWeight: 600 },
+  
+  reasonToDoSection: { backgroundColor: '#F9FAFB', borderRadius: 8, padding: 12, marginBottom: 12 },
+  reasonToDoTitle: { fontSize: 12, fontWeight: 600, color: '#71717A', marginBottom: 6 },
+  reasonToDoList: { listStyle: 'none', padding: 0, margin: 0 },
+  reasonToDoItem: { fontSize: 13, color: '#52525B', marginBottom: 4, lineHeight: 1.5, wordWrap: 'break-word' },
+  
+  relationshipsSection: { display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 },
+  relationshipTag: { fontSize: 11, padding: '4px 8px', borderRadius: 4, fontWeight: 500, cursor: 'pointer' },
+  
+  workTaskActions: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  focusBtnSmall: { display: 'inline-flex', alignItems: 'center', gap: 3, padding: '5px 10px', backgroundColor: 'transparent', border: '1px solid #D4D4D8', borderRadius: 6, fontSize: 12, color: '#71717A', cursor: 'pointer' },
+  startWorkBtn: { display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 14px', backgroundColor: '#10B981', color: 'white', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' },
+  timerControls: { display: 'flex', alignItems: 'center', gap: 6 },
+  timerDisplay: { fontSize: 14, fontVariantNumeric: 'tabular-nums', color: '#71717A' },
+  pauseBtn: { display: 'inline-flex', alignItems: 'center', gap: 3, padding: '5px 10px', backgroundColor: '#F59E0B', color: 'white', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer' },
+  resumeBtn: { display: 'inline-flex', alignItems: 'center', gap: 3, padding: '5px 10px', backgroundColor: '#10B981', color: 'white', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer' },
+  stopBtn: { display: 'inline-flex', alignItems: 'center', gap: 3, padding: '5px 10px', backgroundColor: '#EF4444', color: 'white', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer' },
+  
+  // Graph styles
+  graphContainer: { backgroundColor: '#F9FAFB', borderRadius: 12, padding: 20, marginTop: 16 },
+  graphTitle: { fontSize: 14, fontWeight: 600, color: '#18181B', marginBottom: 16 },
+  graphSvg: { display: 'block', margin: '0 auto', backgroundColor: 'white', borderRadius: 8, border: '1px solid #E4E4E7' },
+  graphHint: { fontSize: 12, color: '#71717A', textAlign: 'center', marginTop: 12 },
+  
+  // Review Mode Styles
+  completedTasksList: { display: 'flex', flexDirection: 'column', gap: 12 },
+  completedTaskItem: { backgroundColor: 'white', border: '1px solid #E4E4E7', borderRadius: 10, padding: 16 },
+  completedTaskHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  completedTaskName: { fontSize: 15, fontWeight: 500, color: '#71717A', textDecoration: 'line-through', cursor: 'pointer', flex: 1 },
+  reactivateBtn: { display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', backgroundColor: 'transparent', border: '1px solid #D4D4D8', borderRadius: 6, fontSize: 12, color: '#71717A', cursor: 'pointer' },
+  reviewFeedbackSection: { backgroundColor: '#FFF7ED', borderRadius: 8, padding: 12, marginBottom: 12 },
+  reviewRatingRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
+  reviewStars: { display: 'flex', gap: 2, color: '#F59E0B' },
+  editReviewBtn: { display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 8px', backgroundColor: 'transparent', border: '1px solid #D4D4D8', borderRadius: 4, fontSize: 11, color: '#71717A', cursor: 'pointer' },
+  reviewImprovementsText: { fontSize: 13, color: '#52525B', lineHeight: 1.5 },
+  editReviewForm: { backgroundColor: '#F9FAFB', borderRadius: 8, padding: 12, marginBottom: 12 },
+  noReviewText: { fontSize: 12, color: '#A1A1AA', fontStyle: 'italic' },
+  answerBulletsSection: { backgroundColor: '#F4F4F5', borderRadius: 8, padding: 12 },
+  answerBulletsTitle: { fontSize: 12, fontWeight: 600, color: '#71717A', marginBottom: 6 },
+  answerBulletsList: { listStyle: 'none', padding: 0, margin: 0 },
+  answerBulletItem: { fontSize: 13, color: '#52525B', marginBottom: 4, lineHeight: 1.5 },
+  
+  // Toggle label
+  toggleLabel: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#52525B', cursor: 'pointer' },
+
+  // Original styles continued...
+  input: { padding: '10px 14px', border: '1px solid #D4D4D8', borderRadius: '8px', fontSize: '14px', outline: 'none', backgroundColor: 'white', width: '100%', boxSizing: 'border-box' },
   inputRow: { display: 'flex', gap: '8px', marginBottom: '16px' },
-  input: { flex: 1, padding: '10px 14px', border: '1px solid #D4D4D8', borderRadius: '8px', fontSize: '15px', outline: 'none', backgroundColor: 'white' },
+  iconBtn: { display: 'flex', alignItems: 'center', justifyContent: 'center', width: '42px', height: '42px', backgroundColor: '#FF6B6B', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer' },
   taskArea: { minHeight: '200px' },
-  taskList: { display: 'flex', flexDirection: 'column', gap: '4px' },
-  taskItem: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px', borderRadius: '8px', backgroundColor: '#F9FAFB', gap: '12px' },
-  taskContent: { flex: 1, fontSize: '15px', color: '#18181B' },
+  taskList: { display: 'flex', flexDirection: 'column', gap: '8px' },
+  taskItem: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', backgroundColor: '#F9FAFB', borderRadius: '10px', border: '1px solid #E4E4E7' },
+  taskContent: { fontSize: '14px', color: '#18181B', fontWeight: '500' },
   taskActions: { display: 'flex', alignItems: 'center', gap: '8px' },
-  typeBadge: { fontSize: 11, padding: '2px 6px', borderRadius: 4, fontWeight: 600, whiteSpace: 'nowrap' },
-  completedSection: { marginTop: '24px', paddingTop: '16px', borderTop: '1px dashed #E4E4E7' },
-  completedLabel: { fontSize: '13px', fontWeight: '600', color: '#71717A', marginBottom: '8px' },
-  completedTask: { fontSize: '14px', color: '#A1A1AA', textDecoration: 'line-through', padding: '4px 0' },
-  emptyState: { textAlign: 'center', padding: '48px 20px' },
-  emptyIcon: { color: '#D4D4D8', marginBottom: '12px', display: 'flex', justifyContent: 'center' },
-  emptyMessage: { color: '#71717A', fontSize: '14px', marginBottom: '16px' },
-  // Focus
+  typeBadge: { fontSize: '11px', padding: '2px 8px', borderRadius: '100px', fontWeight: '600' },
+  checkbox: { width: '18px', height: '18px', borderRadius: '4px', border: '2px solid #D4D4D8', backgroundColor: 'transparent', cursor: 'pointer', flexShrink: 0 },
+  emptyState: { textAlign: 'center', padding: '48px 20px', color: '#A1A1AA' },
+  emptyIcon: { fontSize: '48px', marginBottom: '12px', color: '#D4D4D8' },
+  emptyMessage: { fontSize: '14px', marginBottom: '16px' },
   focusMode: { padding: '20px 0' },
-  progressDots: { display: 'flex', justifyContent: 'center', gap: '6px', marginBottom: '24px' },
-  dot: { width: '8px', height: '8px', borderRadius: '100px', backgroundColor: '#E4E4E7', transition: 'all 0.3s' },
-  dotActive: { width: '32px', backgroundColor: '#FF6B6B' },
   focusHeader: { textAlign: 'center', marginBottom: '24px' },
-  focusLabel: { fontSize: '13px', color: '#71717A', marginBottom: '8px' },
-  focusTask: { fontSize: '20px', fontWeight: '600', color: '#18181B' },
-  wizardCard: { backgroundColor: '#F9FAFB', borderRadius: '12px', padding: '24px', maxWidth: '460px', margin: '0 auto' },
-  questionHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' },
-  wizardProgress: { fontSize: '13px', color: '#71717A' },
-  wizardQuestion: { fontSize: '17px', fontWeight: '600', color: '#18181B', marginBottom: '16px' },
+  focusLabel: { fontSize: '13px', color: '#71717A', marginBottom: '6px' },
+  focusTask: { fontSize: '20px', fontWeight: '700', color: '#18181B', maxWidth: '500px', margin: '0 auto' },
+  progressDots: { display: 'flex', justifyContent: 'center', gap: '6px', marginBottom: '20px', flexWrap: 'wrap' },
+  dot: { width: '8px', height: '8px', borderRadius: '100px', backgroundColor: '#E4E4E7' },
+  dotActive: { width: '28px', backgroundColor: '#FF6B6B' },
+  wizardCard: { backgroundColor: '#F9FAFB', borderRadius: '12px', padding: '24px', maxWidth: '480px', margin: '0 auto' },
+  questionHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' },
+  wizardProgress: { fontSize: '12px', color: '#71717A' },
   purposeBadge: { fontSize: '11px', padding: '3px 8px', borderRadius: '100px', fontWeight: '600' },
-  textarea: { width: '100%', minHeight: '100px', padding: '12px', border: '1px solid #D4D4D8', borderRadius: '8px', fontSize: '14px', resize: 'none', boxSizing: 'border-box' },
-  optionalHint: { fontSize: '12px', color: '#A1A1AA', marginTop: '8px' },
-  wizardActions: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px' },
-  wizardRightActions: { display: 'flex', gap: '8px', alignItems: 'center' },
-  doneIcon: { width: '48px', height: '48px', backgroundColor: '#DCFCE7', color: '#16A34A', borderRadius: '100px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' },
-  doneTitle: { fontSize: '18px', fontWeight: '700', color: '#18181B', textAlign: 'center', marginBottom: '8px' },
-  doneText: { color: '#71717A', fontSize: '14px', textAlign: 'center', marginBottom: '20px' },
+  wizardQuestion: { fontSize: '16px', fontWeight: '600', color: '#18181B', marginBottom: '16px', lineHeight: 1.4 },
+  textarea: { width: '100%', minHeight: '100px', padding: '12px', border: '1px solid #D4D4D8', borderRadius: '8px', fontSize: '14px', outline: 'none', resize: 'vertical', marginBottom: '12px', boxSizing: 'border-box', fontFamily: 'inherit' },
+  optionalHint: { fontSize: '12px', color: '#A1A1AA', marginBottom: '16px' },
+  wizardActions: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
+  wizardRightActions: { display: 'flex', gap: '8px' },
   skipSection: { textAlign: 'center', marginTop: '16px' },
-  linkBtn: { background: 'none', border: 'none', color: '#A1A1AA', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline' },
-  loadingCard: { textAlign: 'center', padding: '32px', color: '#A1A1AA' },
-  loadingText: { marginTop: 12, fontSize: 14 },
-  analysisChip: { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, backgroundColor: '#FFF7ED', color: '#F59E0B', padding: '4px 10px', borderRadius: 100, marginTop: 8 },
-  // Pool combobox
-  comboInput: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', border: '1px solid #D4D4D8', borderRadius: 8, cursor: 'pointer', backgroundColor: 'white', fontSize: 14 },
-  comboDropdown: { position: 'absolute', top: '100%', left: 0, right: 0, backgroundColor: 'white', border: '1px solid #E4E4E7', borderRadius: 10, padding: 12, zIndex: 200, boxShadow: '0 8px 24px rgba(0,0,0,0.1)', marginTop: 4 },
-  comboOption: { padding: '8px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 14, color: '#18181B' },
-  // Relationship panel
-  relPanel: { backgroundColor: '#F9FAFB', border: '1px solid #E4E4E7', borderRadius: 10, padding: 14, marginTop: 12 },
-  relTitle: { fontSize: 13, color: '#71717A', marginBottom: 10 },
-  relTypeBtn: { padding: '5px 10px', border: '1px solid #D4D4D8', borderRadius: 6, fontSize: 12, cursor: 'pointer', backgroundColor: 'white', fontWeight: 500 },
-  // Pod
-  podPickerItem: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', border: '1px solid #E4E4E7', borderRadius: 8, cursor: 'pointer', backgroundColor: 'white' },
-  podForm: { backgroundColor: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: 10, padding: 16 },
-  dayBtn: { width: 32, height: 32, border: '1px solid #D4D4D8', borderRadius: 6, fontSize: 12, cursor: 'pointer', backgroundColor: 'white', fontWeight: 500 },
-  dayBtnActive: { backgroundColor: '#0EA5E9', color: 'white', borderColor: '#0EA5E9' },
-  // Work mode
-  workHeader: { marginBottom: '24px' },
-  workHeaderWithSelector: { marginBottom: '24px' },
-  workTitleRow: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px', flexWrap: 'wrap' },
-  workTitleText: { fontSize: '16px', fontWeight: '600', color: '#18181B' },
-  workTitle: { fontSize: '20px', fontWeight: '700', color: '#18181B', marginBottom: '4px' },
-  workSubtitle: { fontSize: '14px', color: '#71717A' },
-  viewSelector: { padding: '6px 10px', border: '1px solid #D4D4D8', borderRadius: '8px', fontSize: '14px', fontWeight: '600', backgroundColor: 'white', cursor: 'pointer', color: '#18181B' },
-  tableContainer: { overflowX: 'auto' },
-  table: { width: '100%', borderCollapse: 'collapse' },
-  th: { textAlign: 'left', padding: '10px 12px', fontSize: '12px', fontWeight: '600', color: '#71717A', borderBottom: '1px solid #E4E4E7' },
-  tr: { borderBottom: '1px solid #F4F4F5' },
-  td: { padding: '10px 12px', fontSize: '14px', color: '#18181B' },
-  tdMuted: { padding: '10px 12px', fontSize: '13px', color: '#71717A', maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  timerCell: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' },
-  timerDisplay: { fontSize: '13px', color: '#71717A', fontVariantNumeric: 'tabular-nums', minWidth: '40px' },
-  kanbanContainer: { display: 'flex', gap: '12px', overflowX: 'auto', paddingBottom: '8px' },
-  kanbanLane: { flex: '0 0 200px', display: 'flex', flexDirection: 'column' },
-  kanbanLaneHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderTop: '3px solid #ccc', marginBottom: '8px' },
-  kanbanLaneTitle: { fontSize: '13px', fontWeight: '600', color: '#52525B' },
-  kanbanLaneCount: { fontSize: '11px', fontWeight: '700', color: 'white', padding: '1px 7px', borderRadius: '100px' },
-  kanbanLaneBody: { display: 'flex', flexDirection: 'column', gap: '6px' },
-  kanbanEmpty: { fontSize: '12px', color: '#D4D4D8', textAlign: 'center', padding: '16px 0' },
+  doneCard: { backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '12px', padding: '24px', textAlign: 'center', maxWidth: '480px', margin: '0 auto' },
+  doneIcon: { width: '48px', height: '48px', backgroundColor: '#10B981', color: 'white', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', fontSize: '24px' },
+  doneTitle: { fontSize: '18px', fontWeight: '700', color: '#18181B', marginBottom: '8px' },
+  doneText: { fontSize: '14px', color: '#71717A', marginBottom: '16px' },
+  loadingCard: { backgroundColor: '#F9FAFB', borderRadius: '12px', padding: '48px 24px', textAlign: 'center', maxWidth: '480px', margin: '0 auto' },
+  loadingText: { fontSize: '14px', color: '#71717A', marginTop: '12px' },
+  smallOutlineBtn: { display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 10px', backgroundColor: 'transparent', border: '1px solid #D4D4D8', borderRadius: '6px', fontSize: '12px', fontWeight: '500', cursor: 'pointer', color: '#52525B' },
+  
+  // Work Mode
+  workHeader: { marginBottom: '20px' },
+  workHeaderWithSelector: { marginBottom: '20px' },
+  workTitleRow: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '4px' },
+  workTitleText: { fontSize: '15px', fontWeight: '600', color: '#18181B' },
+  viewSelector: { padding: '6px 12px', border: '1px solid #D4D4D8', borderRadius: '8px', fontSize: '14px', fontWeight: '600', backgroundColor: 'white', cursor: 'pointer' },
+  workTitle: { fontSize: '18px', fontWeight: '700', color: '#18181B', marginBottom: '4px' },
+  workSubtitle: { fontSize: '13px', color: '#71717A' },
+  listBlinksContainer: { display: 'flex', flexDirection: 'column', gap: 12 },
+  listWavesContainer: { display: 'flex', flexDirection: 'column', gap: 12 },
+  
+  // Kanban
+  kanbanContainer: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' },
+  kanbanLane: { backgroundColor: '#F9FAFB', borderRadius: '10px', padding: '12px', minHeight: '200px' },
+  kanbanLaneHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', paddingBottom: '8px', borderTop: '3px solid' },
+  kanbanLaneTitle: { fontSize: '13px', fontWeight: '700', color: '#52525B' },
+  kanbanLaneCount: { fontSize: '11px', fontWeight: '700', color: 'white', padding: '2px 8px', borderRadius: '100px' },
+  kanbanLaneBody: { display: 'flex', flexDirection: 'column', gap: '8px' },
+  kanbanEmpty: { fontSize: '12px', color: '#A1A1AA', textAlign: 'center', padding: '20px 0' },
   taskCard: { backgroundColor: 'white', border: '1px solid #E4E4E7', borderRadius: '8px', padding: '10px 12px' },
-  taskCardHeader: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' },
-  taskCardTitle: { fontSize: '13px', fontWeight: '500', color: '#18181B', flex: 1 },
-  taskCardMeta: { display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#A1A1AA', marginBottom: '4px' },
-  taskCardActions: { display: 'flex', alignItems: 'center', gap: '4px', marginTop: '6px' },
-  checkbox: { width: '16px', height: '16px', borderRadius: '4px', border: '2px solid #D4D4D8', backgroundColor: 'transparent', cursor: 'pointer', flexShrink: 0 },
-  energyContainer: { display: 'flex', flexDirection: 'column', gap: '12px' },
-  energySection: { borderLeft: '4px solid #ccc', paddingLeft: '12px' },
-  energyHeader: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' },
-  energyEmoji: { fontSize: '20px' },
-  energyTitle: { fontSize: '14px', fontWeight: '600', color: '#18181B' },
+  taskCardHeader: { display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '6px' },
+  taskCardTitle: { fontSize: '13px', fontWeight: '500', color: '#18181B', flex: 1, lineHeight: 1.4 },
+  taskCardMeta: { display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#71717A', marginBottom: '8px' },
+  taskCardActions: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' },
+  timerBtn: { width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent', color: '#71717A', border: '1px solid #E4E4E7', borderRadius: '6px', cursor: 'pointer' },
+  
+  // Pool View
+  poolMetaChip: { display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 10px', backgroundColor: '#F4F4F5', borderRadius: '100px', fontSize: '12px', color: '#52525B' },
+  
+  // Energy View
+  energyContainer: { display: 'flex', flexDirection: 'column', gap: '16px' },
+  energySection: { backgroundColor: '#F9FAFB', borderRadius: '10px', padding: '16px', borderLeft: '4px solid' },
+  energyHeader: { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' },
+  energyEmoji: { fontSize: '24px' },
+  energyTitle: { fontSize: '14px', fontWeight: '700', color: '#18181B' },
   energyDesc: { fontSize: '12px', color: '#71717A' },
-  energyCount: { fontSize: '12px', color: 'white', padding: '2px 8px', borderRadius: '100px', fontWeight: 700, marginLeft: 'auto' },
-  energyBody: { display: 'flex', flexDirection: 'column', gap: '6px' },
-  poolMetaChip: { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, padding: '4px 10px', borderRadius: 100, backgroundColor: '#6366F110', color: '#6366F1', fontWeight: 500 },
-  podSideItem: { display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', borderRadius: 8, border: '1px solid #E4E4E7', cursor: 'pointer', marginBottom: 4, backgroundColor: 'white' },
-  statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', marginBottom: '24px' },
+  energyCount: { fontSize: '12px', fontWeight: '700', color: 'white', padding: '2px 10px', borderRadius: '100px', marginLeft: 'auto' },
+  energyBody: { display: 'flex', flexDirection: 'column', gap: '8px' },
+  
+  // Pod View
+  podTaskCard: { position: 'relative' },
+  daysUntilBadge: { position: 'absolute', top: 10, right: 10, fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 4, backgroundColor: '#F59E0B', color: 'white' },
+  
+  // Review Mode
+  statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '24px' },
   statCard: { backgroundColor: '#F9FAFB', borderRadius: '12px', padding: '20px', textAlign: 'center' },
   statValue: { fontSize: '28px', fontWeight: '800', color: '#18181B', marginBottom: '4px' },
   statLabel: { fontSize: '12px', color: '#71717A', fontWeight: '500' },
@@ -2184,9 +2900,14 @@ const styles = {
   reviewItemTask: { fontSize: '13px', fontWeight: '500', color: '#18181B', flex: 1 },
   reviewItemStars: { display: 'flex', gap: '2px', color: '#F59E0B' },
   reviewItemText: { fontSize: '12px', color: '#71717A' },
+  completedSection: { marginTop: '24px', paddingTop: '16px', borderTop: '1px solid #E4E4E7' },
+  completedLabel: { fontSize: '12px', fontWeight: '600', color: '#71717A', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' },
+  completedTask: { fontSize: '13px', color: '#A1A1AA', textDecoration: 'line-through', padding: '6px 0' },
+  
+  // Features section
   features: { padding: '40px 0 60px' },
   featuresTitle: { fontSize: '24px', fontWeight: '700', color: '#18181B', textAlign: 'center', marginBottom: '24px' },
-  featuresGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' },
+  featuresGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' },
   featureCard: { padding: '20px', backgroundColor: 'white', borderRadius: '12px', border: '1px solid #E4E4E7' },
   featureIcon: { width: '40px', height: '40px', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '12px' },
   featureTitle: { fontSize: '14px', fontWeight: '700', color: '#18181B', marginBottom: '6px' },
@@ -2194,6 +2915,8 @@ const styles = {
   ctaSection: { textAlign: 'center', marginTop: '32px', paddingTop: '24px', borderTop: '1px solid #F4F4F5' },
   ctaText: { fontSize: '14px', color: '#71717A', marginBottom: '12px' },
   ctaButton: { display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '12px 24px', backgroundColor: '#18181B', color: 'white', border: 'none', borderRadius: '10px', fontSize: '14px', fontWeight: '600', cursor: 'pointer' },
+  
+  // Auth
   authPage: { minHeight: '100vh', backgroundColor: '#F9FAFB', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' },
   authContainer: { width: '100%', maxWidth: '400px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' },
   authLogo: { display: 'flex', alignItems: 'center', gap: '8px', color: '#FF6B6B' },
@@ -2209,117 +2932,57 @@ const styles = {
   authPrimaryBtn: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '10px 20px', backgroundColor: '#FF6B6B', color: 'white', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: '600', cursor: 'pointer' },
   authError: { fontSize: '13px', color: '#EF4444', backgroundColor: '#FEF2F2', padding: '8px 12px', borderRadius: '6px', border: '1px solid #FECACA' },
   backToHome: { display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'none', border: 'none', color: '#71717A', fontSize: '14px', cursor: 'pointer' },
-  answerSummary: { backgroundColor: 'white', borderRadius: '8px', padding: '12px', marginBottom: '16px', border: '1px solid #E4E4E7' },
+  answerSummary: { backgroundColor: 'white', borderRadius: '8px', padding: '12px', marginBottom: '16px', border: '1px solid #E4E4E7', textAlign: 'left' },
   summaryTitle: { fontSize: '12px', fontWeight: '600', color: '#71717A', marginBottom: '8px' },
   summaryItem: { display: 'flex', gap: '8px', marginBottom: '4px', fontSize: '12px' },
   summaryLabel: { fontWeight: '600', color: '#52525B', textTransform: 'capitalize' },
   summaryValue: { color: '#71717A', flex: 1 },
-
+  
+  // Focus Mode sub-components
+  relPanel: { marginTop: 16, backgroundColor: '#F9FAFB', borderRadius: 10, padding: 16 },
+  relTitle: { fontSize: 13, color: '#52525B', marginBottom: 12 },
+  relTypeBtn: { padding: '6px 12px', border: '1px solid #E4E4E7', borderRadius: 6, fontSize: 12, cursor: 'pointer', backgroundColor: 'white' },
+  podForm: { backgroundColor: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: 10, padding: 16 },
+  podTypeBtn: { flex: 1, padding: '12px', border: '1px solid #E4E4E7', borderRadius: 8, cursor: 'pointer', backgroundColor: 'white', textAlign: 'left' },
+  podTypeBtnActive: { borderColor: '#0EA5E9', backgroundColor: '#F0F9FF' },
+  weekDayBtn: { width: 36, height: 36, borderRadius: 8, border: '1px solid #E4E4E7', backgroundColor: 'white', cursor: 'pointer', fontSize: 12, fontWeight: 600 },
+  weekDayBtnActive: { backgroundColor: '#0EA5E9', color: 'white', borderColor: '#0EA5E9' },
+  podPickerItem: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', border: '1px solid #E4E4E7', borderRadius: 8, cursor: 'pointer', backgroundColor: 'white' },
+  
   // Video Modal Styles
-  modalOverlay: {
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 1000,
-  },
-  modalContent: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)',
-    maxWidth: 600,
-    width: '90%',
-    maxHeight: '90vh',
-    overflow: 'auto',
-  },
-  modalHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
-    borderBottom: '1px solid #E4E4E7',
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 600,
-    margin: 0,
-    color: '#18181B',
-  },
-  modalCloseBtn: {
-    background: 'none',
-    border: 'none',
-    fontSize: 28,
-    cursor: 'pointer',
-    color: '#A1A1AA',
-    padding: 0,
-    width: 32,
-    height: 32,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  videoContainer: {
-    padding: 20,
-    backgroundColor: '#FAFAFA',
-  },
-  modalFooter: {
-    padding: 20,
-    borderTop: '1px solid #E4E4E7',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  checkboxLabel: {
-    display: 'flex',
-    alignItems: 'center',
-    fontSize: 14,
-    color: '#52525B',
-    cursor: 'pointer',
-  },
-
+  modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
+  modalContent: { backgroundColor: 'white', borderRadius: 12, boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2)', maxWidth: 600, width: '90%', maxHeight: '90vh', overflow: 'auto' },
+  modalHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottom: '1px solid #E4E4E7' },
+  modalTitle: { fontSize: 20, fontWeight: 600, margin: 0, color: '#18181B' },
+  modalCloseBtn: { background: 'none', border: 'none', fontSize: 28, cursor: 'pointer', color: '#A1A1AA', padding: 0, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  videoContainer: { padding: 20, backgroundColor: '#FAFAFA' },
+  modalFooter: { padding: 20, borderTop: '1px solid #E4E4E7', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+  checkboxLabel: { display: 'flex', alignItems: 'center', fontSize: 14, color: '#52525B', cursor: 'pointer' },
+  
   // Navigation Menu Styles
-  navContainer: {
-    display: 'flex',
-    gap: 16,
-    alignItems: 'center',
-    marginRight: 20,
-  },
-  navLink: {
-    background: 'none',
-    border: 'none',
-    color: '#52525B',
-    cursor: 'pointer',
-    fontSize: 14,
-    fontWeight: 500,
-    padding: '4px 0',
-    transition: 'color 0.2s',
-  },
-  dropdownMenu: {
-    position: 'absolute',
-    top: '100%',
-    right: 0,
-    backgroundColor: 'white',
-    border: '1px solid #E4E4E7',
-    borderRadius: 8,
-    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-    minWidth: 180,
-    zIndex: 100,
-    marginTop: 4,
-  },
-  dropdownItem: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    padding: '10px 16px',
-    color: '#52525B',
-    textDecoration: 'none',
-    fontSize: 13,
-    borderBottom: '1px solid #F4F4F5',
-    transition: 'backgroundColor 0.2s',
-  },
+  navContainer: { display: 'flex', gap: 16, alignItems: 'center', marginRight: 20 },
+  navLink: { background: 'none', border: 'none', color: '#52525B', cursor: 'pointer', fontSize: 14, fontWeight: 500, padding: '4px 0', transition: 'color 0.2s', display: 'flex', alignItems: 'center' },
+  dropdownMenu: { position: 'absolute', top: '100%', right: 0, backgroundColor: 'white', border: '1px solid #E4E4E7', borderRadius: 8, boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)', minWidth: 180, zIndex: 100, marginTop: 4 },
+  dropdownItem: { display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', color: '#52525B', textDecoration: 'none', fontSize: 13, borderBottom: '1px solid #F4F4F5' },
+
+  // Table styles (not used in new list view but kept for compatibility)
+  tableContainer: { overflowX: 'auto' },
+  table: { width: '100%', borderCollapse: 'collapse' },
+  th: { textAlign: 'left', padding: '10px 12px', fontSize: '12px', fontWeight: '600', color: '#71717A', borderBottom: '1px solid #E4E4E7', textTransform: 'uppercase', letterSpacing: '0.5px' },
+  td: { padding: '12px', borderBottom: '1px solid #F4F4F5', fontSize: '14px', color: '#18181B' },
+  tdMuted: { padding: '12px', borderBottom: '1px solid #F4F4F5', fontSize: '13px', color: '#71717A' },
+  tr: { backgroundColor: 'white' },
+  timerCell: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' },
 };
+
+// Add CSS animation for highlighted focus button
+const styleSheet = document.createElement('style');
+styleSheet.textContent = `
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 107, 107, 0.4); }
+    50% { transform: scale(1.02); box-shadow: 0 0 0 6px rgba(255, 107, 107, 0); }
+  }
+`;
+if (typeof document !== 'undefined') {
+  document.head.appendChild(styleSheet);
+}
