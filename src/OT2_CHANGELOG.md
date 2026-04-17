@@ -92,6 +92,11 @@
 
 | ID | Date | Summary |
 |----|------|---------|
+| ERR-025 | 2026-04-16 | **Work Mode Waves view not showing** — created WavesView component to render waves when contextFilter === 'waves'; supports Kanban, WorkIQ 4×4, and DailyZen strategies |
+| ERR-024 | 2026-04-16 | **Work Mode strategy dropdown missing for Waves** — added strategy dropdown for Waves view with Kanban, WorkIQ 4×4, and DailyZen options |
+| ERR-023 | 2026-04-16 | **Work Mode last pool not showing tasks by default** — added useEffect to set contextFilter to 'pools' when last pool is loaded from localStorage |
+| ERR-022 | 2026-04-16 | **Focus Mode text box not focused** — added editTitleRef and useEffect to focus on editTitle input when Focus Mode mounts |
+| ERR-021 | 2026-04-16 | **Freedom Mode text box not focused** — added textareaRef and useEffect with newTask dependency to focus textarea when Freedom Mode mounts |
 | ERR-020 | 2026-04-16 | **Work Mode last pool not persisted** — added localStorage persistence for selectedPoolId; last worked task graph now loads as default view when entering Work Mode |
 | ERR-019 | 2026-04-16 | **Work Mode dropdown not focused** — added useRef to context filter dropdown and useEffect to focus it when WorkMode mounts for better UX |
 | ERR-018 | 2026-04-16 | **Link task button not working in Focus Mode** — addRelationship function used undefined focusedTaskId instead of task.id; fixed to use task.id so relationships are properly created |

@@ -1096,16 +1096,23 @@ function NavDropdown({ label, items, isOpen, onToggle, onClose }) {
 // ============================================================================
 function FreedomMode({ newTask, setNewTask, onAddTask, pendingTasks, allPendingCount, completedTasks, onDeleteTask, onStartFocus }) {
   const textareaRef = useRef(null);
-  
-  const handleKeyDown = (e) => { 
+
+  // Focus textarea when Freedom Mode mounts or when switching to Freedom Mode
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  }, [newTask]);
+
+  const handleKeyDown = (e) => {
     // Cmd/Ctrl+Enter to submit
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { 
-      e.preventDefault(); 
-      onAddTask(); 
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      onAddTask();
     }
     // Enter alone creates new line (default textarea behavior)
   };
-  
+
   const qualifiedCount = (allPendingCount || 0) - pendingTasks.length;
   
   // Simple rich text formatting
@@ -1720,6 +1727,14 @@ function FocusMode({
   const [questions, setQuestions] = useState([]);
   const [editTitle, setEditTitle] = useState(task.content);
   const [isTitleEditing, setIsTitleEditing] = useState(false);
+  const editTitleRef = useRef(null);
+
+  // Focus on editTitle input when Focus Mode mounts
+  useEffect(() => {
+    if (editTitleRef.current && !isTitleEditing) {
+      editTitleRef.current.focus();
+    }
+  }, [task.id, isTitleEditing]);
 
   useEffect(() => {
     const loadQuestions = async () => {
@@ -1823,6 +1838,7 @@ function FocusMode({
         <p style={styles.focusLabel}>Currently focusing on:</p>
         {isTitleEditing ? (
           <input
+            ref={editTitleRef}
             autoFocus
             value={editTitle}
             onChange={e => setEditTitle(e.target.value)}
@@ -2127,6 +2143,14 @@ function WorkMode({
       localStorage.setItem('ot2_last_selected_pool', selectedPoolId);
     }
   }, [selectedPoolId]);
+
+  // Set contextFilter to 'pools' when last pool is loaded
+  useEffect(() => {
+    const saved = localStorage.getItem('ot2_last_selected_pool');
+    if (saved) {
+      setContextFilter('pools');
+    }
+  }, []);
 
   // Waves = tasks not in any Pool or Pod
   const waveTasks = pendingTasks.filter(t => !(t.poolIds?.length));
@@ -2790,6 +2814,47 @@ function WorkMode({
     );
   };
 
+  // ── Waves View (for unassociated tasks) ──
+  const WavesView = () => {
+    // Render based on poolStrategyView
+    if (poolStrategyView === 'kanban') {
+      return (
+        <div style={styles.kanbanContainer}>
+          {Object.entries(kanbanLanes).map(([key, lane]) => (
+            <div key={key} style={styles.kanbanLane}>
+              <div style={{ ...styles.kanbanLaneHeader, borderTopColor: lane.color }}>
+                <span style={styles.kanbanLaneTitle}>{lane.title}</span>
+                <span style={{ ...styles.kanbanLaneCount, backgroundColor: lane.color }}>{lane.tasks.length}</span>
+              </div>
+              <div style={styles.kanbanLaneBody}>
+                {lane.tasks.length === 0 ? <div style={styles.kanbanEmpty}>No tasks</div> : lane.tasks.map(t => <TaskCard key={t.id} task={t} compact />)}
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    if (poolStrategyView === 'workiq') {
+      return <WorkIQ4x4View />;
+    }
+
+    if (poolStrategyView === 'dailyzen') {
+      return <DailyZenView />;
+    }
+
+    // Default: List view
+    return (
+      <div style={styles.listWavesContainer}>
+        {waveTasks.length === 0 ? (
+          <EmptyState icon={<Icons.Briefcase className="w-8 h-8" />} message="No waves here. Add tasks in Freedom mode, or check Task Graphs." action={{ label: 'Go to Freedom Mode', onClick: onGoToFreedom }} />
+        ) : (
+          waveTasks.map(task => <TaskCard key={task.id} task={task} />)
+        )}
+      </div>
+    );
+  };
+
   // ── DailyZen View (AI-powered 1-3-5 focus selection) ──
   const DailyZenView = () => {
     const scoreTask = (task) => {
@@ -2938,7 +3003,7 @@ function WorkMode({
             <option value="pools">⧉ Task Graphs</option>
           </select>
 
-          {/* Level 2: Strategy filter — for Pools only */}
+          {/* Level 2: Strategy filter — for Pools and Waves */}
           {contextFilter === 'pools' && (
             <>
               <span style={{ ...styles.workTitleText, marginLeft: 8 }}>as</span>
@@ -2955,6 +3020,20 @@ function WorkMode({
               </select>
             </>
           )}
+          {contextFilter === 'waves' && (
+            <>
+              <span style={{ ...styles.workTitleText, marginLeft: 8 }}>as</span>
+              <select
+                value={poolStrategyView}
+                onChange={e => setPoolStrategyView(e.target.value)}
+                style={styles.viewSelector}
+              >
+                <option value="kanban">Kanban</option>
+                <option value="workiq">WorkIQ 4×4</option>
+                <option value="dailyzen">DailyZen</option>
+              </select>
+            </>
+          )}
         </div>
         <p style={styles.workSubtitle}>
           {contextFilter === 'pools'  && poolStrategyView === 'list'     && 'Task Graph tasks · full detail list'}
@@ -2962,6 +3041,9 @@ function WorkMode({
           {contextFilter === 'pools'  && poolStrategyView === 'dailyzen' && 'Task Graph tasks · AI curated 1-3-5 focus'}
           {contextFilter === 'pools'  && poolStrategyView === 'workiq'   && 'Task Graph tasks · WorkIQ 4×4 quadrants'}
           {contextFilter === 'pools'  && poolStrategyView === 'ripples'  && 'Task Graph recurring tasks with tracker logging'}
+          {contextFilter === 'waves' && poolStrategyView === 'kanban'   && 'Waves organised by deadline'}
+          {contextFilter === 'waves' && poolStrategyView === 'workiq'   && 'Waves · WorkIQ 4×4 quadrants'}
+          {contextFilter === 'waves' && poolStrategyView === 'dailyzen' && 'Waves · AI curated 1-3-5 focus'}
         </p>
       </div>
 
@@ -2985,8 +3067,9 @@ function WorkMode({
         </div>
       )}
 
-      {/* View rendering — Pools & Pods only */}
+      {/* View rendering — Pools & Waves */}
       {contextFilter === 'pools' && <PoolView />}
+      {contextFilter === 'waves' && <WavesView />}
     </div>
   );
 }
