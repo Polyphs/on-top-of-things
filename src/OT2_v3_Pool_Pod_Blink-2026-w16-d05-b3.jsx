@@ -1,46 +1,4 @@
-// ============================================================================
-// CURRENT CHANGE: Rewrite PoolView ripples branch to match StressTest pattern
-// CHANGE DATE: 2026-W16-d06
-// CHANGE REASON: Previous edits targeted the wrong (legacy PodView) code path.
-//                The active code path is PoolView's `poolStrategyView === 'ripples'`
-//                branch, which still showed a horizontal 7-day checkbox grid.
-// EXPECTED IMPACT: Work Mode > Task Graphs > Recurring now shows per-task cards
-//                  with Today's Planned/Done/Skipped + inline tracker inputs.
-// BACKUP: OT2_v3_Pool_Pod_Blink-2026-w16-d06-b6.jsx
-// ============================================================================
-//
-// COMPLETED CHANGE (2026-W16-d06-b5): Ripples-style RecurringView
-// - Replaced calendar grid with per-task cards (RecurringTaskCard)
-// - Each card: task title, recurrence summary badge, Today's status buttons,
-//   inline tracker inputs
-// - Status buttons: Planned / Done / Skipped (matches StressTest pattern)
-// - Only today is editable; card color reflects status (gray/green/red)
-// - Removed date-range picker, calendar popup, and 11-day grid
-// ============================================================================
-//
-// COMPLETED CHANGE (2026-W16-d06-b4): Fixed Date Headers & Edit Window
-// - Date headers now show "Apr 13, 14, 15..." with month label at top
-// - Editable window: past 5 days + today only (6 days total)
-// - Future dates locked (not selectable/editable)
-// - Tracker fields hidden for future dates
-// - Today highlighted in amber with "TODAY" label
-// ============================================================================
-//
-// COMPLETED CHANGE (2026-W16-d06-b3): Calendar Date Picker for RecurringView
-// - Added calendar icon with date range display (e.g., "Apr 13 - Apr 23")
-// - Changed to 11-day window: 5 days before + center date + 5 days after
-// - Added month calendar popup with clickable date selection
-// - Calendar highlights: scheduled days (green dot), selected date (blue), today (amber)
-// ============================================================================
-
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { runRelationshipTests } from './relationship-regression-tests.jsx';
-
-// Expose regression tests to window for console access
-if (typeof window !== 'undefined') {
-  window.runRegressionTests = runRelationshipTests;
-  console.log('[OT²] Regression tests available. Run window.runRegressionTests() in console to execute.');
-}
 
 // ============================================================================
 // MOCK AUTH HOOK (standalone version - no external dependencies)
@@ -2547,24 +2505,15 @@ function WorkMode({
       );
     }
 
-    // ── RECURRING strategy (Ripples behavior inside Task Graph) ──
-    // Matches StressTest RippleTaskCard pattern: per-task card with Today's
-    // Planned/Done/Skipped buttons and inline tracker inputs.
+    // ── RECURRING strategy (ripple behavior inside Task Graph) ──
     if (poolStrategyView === 'ripples') {
       const poolRecurring = poolTasks.filter(t => t.recurrenceEnabled && t.recurrence);
-      const today = todayStr();
-
-      const statusColors = {
-        planned:   { bg: '#F4F4F5', border: '#E4E4E7', text: '#71717A' },
-        completed: { bg: '#F0FDF4', border: '#86EFAC', text: '#10B981' },
-        missed:    { bg: '#FEF2F2', border: '#FECACA', text: '#EF4444' },
+      const days = Array.from({ length: 7 }, (_, i) => addDays(todayStr(), -6 + i));
+      const cycleStatus = (cur) => {
+        const c = ['planned', 'completed', 'missed'];
+        return c[(c.indexOf(cur) + 1) % 3];
       };
-      const statusButtons = [
-        { key: 'planned',   label: 'Planned' },
-        { key: 'completed', label: 'Done' },
-        { key: 'missed',    label: 'Skipped' },
-      ];
-
+      const statusIcon = (s) => ({ completed: '✅', missed: '❌', planned: '⬜' }[s] || '⬜');
       return (
         <>
           <PoolHeader />
@@ -2575,114 +2524,57 @@ function WorkMode({
             <EmptyState icon={<Icons.Ripple className="w-8 h-8" />} message="No recurring tasks in this Task Graph yet. Enable recurrence in Focus Mode." />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {poolRecurring.map(task => {
-                const log = getRecurrenceLog(task.id, today);
-                const colors = statusColors[log.status] || statusColors.planned;
-                const trackers = task.recurrence?.trackers || [];
-                const legacyLabel = (task.recurrenceTrackerLabel || '').trim();
-
-                const setStatus = (status) => setRecurrenceLog(task.id, today, { status });
-                const setTracker = (id, value) => setRecurrenceLog(task.id, today, {
-                  trackerValues: { ...(log.trackerValues || {}), [id]: value }
-                });
-
-                return (
-                  <div
-                    key={task.id}
-                    style={{
-                      backgroundColor: colors.bg,
-                      border: `1px solid ${colors.border}`,
-                      borderRadius: 10,
-                      padding: 12,
-                    }}
-                  >
-                    {/* Header: title + recurrence summary badge */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 4, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 14, fontWeight: 600, color: '#18181B', flex: 1, minWidth: 0 }}>{task.content}</span>
-                      <span style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        backgroundColor: '#0EA5E915',
-                        color: '#0369A1',
-                        fontSize: 11,
-                        padding: '2px 8px',
-                        borderRadius: 6,
-                        fontWeight: 500,
-                        flexShrink: 0,
-                      }}>
-                        {recurrenceSummaryLine(task)}
-                      </span>
-                    </div>
-
-                    {/* Today's check-in row */}
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 12, color: '#71717A', fontWeight: 500 }}>Today:</span>
-                      {statusButtons.map(s => {
-                        const active = log.status === s.key;
-                        const sc = statusColors[s.key];
-                        return (
-                          <button
-                            key={s.key}
-                            onClick={() => setStatus(s.key)}
-                            style={{
-                              padding: '4px 12px',
-                              borderRadius: 6,
-                              border: `1px solid ${active ? sc.text : '#E4E4E7'}`,
-                              backgroundColor: active ? sc.text : 'white',
-                              color: active ? 'white' : '#71717A',
-                              fontSize: 12,
-                              fontWeight: 500,
-                              cursor: 'pointer',
-                            }}
-                          >
-                            {s.label}
-                          </button>
-                        );
-                      })}
-
-                      {/* New trackers array (tracker.label placeholder) */}
-                      {trackers.map(tracker => (
-                        <input
-                          key={tracker.id}
-                          type={tracker.valueType === 'number' ? 'number' : 'text'}
-                          placeholder={tracker.label || 'Value'}
-                          value={(log.trackerValues || {})[tracker.id] || ''}
-                          onChange={e => setTracker(tracker.id, e.target.value)}
-                          style={{
-                            flex: 1,
-                            minWidth: 100,
-                            padding: '4px 8px',
-                            fontSize: 12,
-                            border: '1px solid #E4E4E7',
-                            borderRadius: 6,
-                            backgroundColor: 'white',
-                          }}
-                        />
+              {poolRecurring.map(task => (
+                <div key={task.id} style={styles.workTaskCard}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                    <span style={styles.workTaskTitle}>{task.content}</span>
+                    <span style={styles.podBadge}>{recurrenceSummaryLine(task)}</span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: `repeat(7, minmax(36px, 1fr))`, gap: 6, marginBottom: 8 }}>
+                    {days.map(d => {
+                      const log = getRecurrenceLog(task.id, d);
+                      return (
+                        <button
+                          key={d}
+                          style={{ border: '1px solid #E4E4E7', borderRadius: 6, background: 'white', padding: '6px 0', cursor: 'pointer' }}
+                          title={`${d} · click to cycle status`}
+                          onClick={() => setRecurrenceLog(task.id, d, { status: cycleStatus(log.status) })}
+                        >
+                          {statusIcon(log.status)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {((task.recurrence?.trackers?.length > 0) || (task.recurrenceTrackerLabel || '').trim()) && (
+                    <div style={{ marginTop: 8 }}>
+                      {/* Support both new trackers array and old recurrenceTrackerLabel */}
+                      {task.recurrence?.trackers?.map(tracker => (
+                        <div key={tracker.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                          <span style={{ fontSize: 12, color: '#71717A', minWidth: 44 }}>{tracker.label}:</span>
+                          <input
+                            style={{ ...styles.input, maxWidth: 160, padding: '6px 8px' }}
+                            placeholder="Enter value"
+                            value={getRecurrenceLog(task.id, todayStr()).trackerValues?.[tracker.id] || ''}
+                            onChange={e => setRecurrenceLog(task.id, todayStr(), { trackerValues: { ...getRecurrenceLog(task.id, todayStr()).trackerValues, [tracker.id]: e.target.value } })}
+                          />
+                        </div>
                       ))}
-
-                      {/* Legacy fallback: single recurrenceTrackerLabel */}
-                      {!trackers.length && legacyLabel && (
-                        <input
-                          type="text"
-                          placeholder={legacyLabel}
-                          value={(log.trackerValues || {}).t1 || ''}
-                          onChange={e => setTracker('t1', e.target.value)}
-                          style={{
-                            flex: 1,
-                            minWidth: 100,
-                            padding: '4px 8px',
-                            fontSize: 12,
-                            border: '1px solid #E4E4E7',
-                            borderRadius: 6,
-                            backgroundColor: 'white',
-                          }}
-                        />
+                      {/* Fallback for old recurrenceTrackerLabel */}
+                      {!task.recurrence?.trackers?.length && (task.recurrenceTrackerLabel || '').trim() && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontSize: 12, color: '#71717A', minWidth: 44 }}>{task.recurrenceTrackerLabel}:</span>
+                          <input
+                            style={{ ...styles.input, maxWidth: 160, padding: '6px 8px' }}
+                            placeholder="Enter value"
+                            value={getRecurrenceLog(task.id, todayStr()).trackerValues?.t1 || ''}
+                            onChange={e => setRecurrenceLog(task.id, todayStr(), { trackerValues: { t1: e.target.value } })}
+                          />
+                        </div>
                       )}
                     </div>
-                  </div>
-                );
-              })}
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </>
@@ -2788,128 +2680,10 @@ function WorkMode({
       );
     };
 
-    // ── Recurring sub-view: per-task cards (Ripples style from StressTest) ──
-    // Each task shows: title, recurrence summary badge, Today's Planned/Done/Skipped
-    // buttons, and tracker inputs. Only today is editable.
-    const RecurringTaskCard = ({ task }) => {
-      const log = getPodLog(pod.id, task.id, today);
-      const trackerFields = (pod.trackerFields || []).filter(f => f.name);
-
-      const statusColors = {
-        planned: { bg: '#F4F4F5', border: '#E4E4E7', text: '#71717A' },
-        completed: { bg: '#F0FDF4', border: '#86EFAC', text: '#10B981' },
-        missed: { bg: '#FEF2F2', border: '#FECACA', text: '#EF4444' },
-      };
-      const colors = statusColors[log.status] || statusColors.planned;
-
-      const statusButtons = [
-        { key: 'planned', label: 'Planned' },
-        { key: 'completed', label: 'Done' },
-        { key: 'missed', label: 'Skipped' },
-      ];
-
-      const setStatus = (status) => setPodLog(pod.id, task.id, today, { status });
-      const setTracker = (fieldId, value) => setPodLog(pod.id, task.id, today, {
-        trackerValues: { ...(log.trackerValues || {}), [fieldId]: value }
-      });
-
-      return (
-        <div style={{
-          backgroundColor: colors.bg,
-          border: `1px solid ${colors.border}`,
-          borderRadius: 10,
-          padding: 12,
-          marginBottom: 10,
-        }}>
-          {/* Header: title + recurrence badge */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 6, alignItems: 'flex-start' }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: '#18181B', marginBottom: 4 }}>
-                {task.content}
-              </div>
-              <div style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 4,
-                backgroundColor: '#0EA5E915',
-                color: '#0369A1',
-                fontSize: 11,
-                padding: '2px 8px',
-                borderRadius: 6,
-                fontWeight: 500,
-              }}>
-                <Icons.Calendar className="w-3 h-3" />
-                {podSummaryLine(pod)}
-              </div>
-            </div>
-          </div>
-
-          {/* Today's check-in row */}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 12, color: '#71717A', fontWeight: 500 }}>Today:</span>
-            {statusButtons.map(s => {
-              const active = log.status === s.key;
-              return (
-                <button
-                  key={s.key}
-                  onClick={() => setStatus(s.key)}
-                  style={{
-                    padding: '4px 12px',
-                    borderRadius: 6,
-                    border: `1px solid ${active ? colors.text : '#E4E4E7'}`,
-                    backgroundColor: active ? colors.text : 'white',
-                    color: active ? 'white' : '#71717A',
-                    fontSize: 12,
-                    fontWeight: 500,
-                    cursor: 'pointer',
-                  }}
-                >
-                  {s.label}
-                </button>
-              );
-            })}
-
-            {/* Tracker inputs inline */}
-            {trackerFields.map(field => {
-              const val = (log.trackerValues || {})[field.id] || '';
-              if (field.type === 'checkbox') {
-                return (
-                  <label key={field.id} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#71717A' }}>
-                    <input
-                      type="checkbox"
-                      checked={val === 'true'}
-                      onChange={e => setTracker(field.id, e.target.checked ? 'true' : 'false')}
-                      style={{ cursor: 'pointer' }}
-                    />
-                    {field.name}
-                  </label>
-                );
-              }
-              return (
-                <input
-                  key={field.id}
-                  type={field.type === 'number' ? 'number' : 'text'}
-                  placeholder={field.name}
-                  value={val}
-                  onChange={e => setTracker(field.id, e.target.value)}
-                  style={{
-                    flex: 1,
-                    minWidth: 100,
-                    padding: '4px 8px',
-                    fontSize: 12,
-                    border: '1px solid #E4E4E7',
-                    borderRadius: 6,
-                    backgroundColor: 'white',
-                  }}
-                />
-              );
-            })}
-          </div>
-        </div>
-      );
-    };
-
+    // ── Recurring sub-view (calendar grid) ──
     const RecurringView = () => {
+      const days = Array.from({ length: 14 }, (_, i) => addDays(addDays(today, -6), i));
+
       const isDayActive = (dayStr) => {
         if (!pod) return false;
         const r = pod.recurrence;
@@ -2927,55 +2701,81 @@ function WorkMode({
         return true;
       };
 
-      const todayScheduled = isDayActive(today);
+      const statusIcon = (s) => ({ completed: '✅', missed: '❌', planned: '⬜' }[s] || '⬜');
+      const cycleStatus = (cur) => { const c = ['planned','completed','missed']; return c[(c.indexOf(cur)+1)%3]; };
 
       return (
         <>
-          {/* Header */}
-          <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-            <p style={{ fontSize: 13, color: '#71717A', margin: 0 }}>
-              {podTasks.length} recurring task{podTasks.length === 1 ? '' : 's'} · {podSummaryLine(pod)}
-            </p>
-            {!todayScheduled && (
-              <span style={{ fontSize: 11, color: '#F59E0B', fontWeight: 500 }}>
-                ⚠ Not scheduled today
-              </span>
-            )}
+          <div style={{ marginBottom: 10 }}>
+            <p style={{ fontSize: 12, color: '#71717A' }}>{podSummaryLine(pod)} · {podTasks.length} tasks assigned</p>
           </div>
 
-          {/* Info banner */}
-          <div style={{
-            backgroundColor: '#F0F9FF',
-            border: '1px solid #BAE6FD',
-            borderRadius: 8,
-            padding: '8px 12px',
-            marginBottom: 12,
-            fontSize: 12,
-            color: '#0369A1',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-          }}>
-            <Icons.Ripple className="w-4 h-4" />
-            <strong>Recurring view</strong> inside Task Graph for <strong>{pod.name}</strong>
+          {/* Day header */}
+          <div style={{ display: 'grid', gridTemplateColumns: `160px repeat(14, 38px)`, gap: 3, marginBottom: 4, overflowX: 'auto' }}>
+            <div style={{ fontSize: 11, color: '#A1A1AA', padding: '2px 4px' }}>Task / Tracker</div>
+            {days.map(d => {
+              const isT = d === today;
+              const active = isDayActive(d);
+              return (
+                <div key={d} style={{ textAlign: 'center', fontSize: 10, color: isT ? '#FF6B6B' : (active ? '#18181B' : '#D4D4D8'), fontWeight: isT ? 700 : 400, lineHeight: 1.3 }}>
+                  <div>{WEEK_DAYS_SHORT[(new Date(d).getDay() + 6) % 7]}</div>
+                  <div>{new Date(d).getDate()}</div>
+                </div>
+              );
+            })}
           </div>
 
-          {podTasks.length === 0 ? (
-            <EmptyState
-              icon={<Icons.Ripple className="w-8 h-8" />}
-              message="No tasks assigned. Use Focus Mode to add tasks to this Ripple."
-            />
-          ) : (
-            <div>
-              {podTasks.map(task => (
-                <RecurringTaskCard key={task.id} task={task} />
+          {podTasks.length === 0 && <p style={{ fontSize: 13, color: '#A1A1AA', padding: '8px 0' }}>No tasks assigned. Use Focus Mode to add tasks to this Pod.</p>}
+
+          {podTasks.map(task => (
+            <div key={task.id}>
+              <div style={{ display: 'grid', gridTemplateColumns: `160px repeat(14, 38px)`, gap: 3, marginBottom: 2, alignItems: 'center' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#18181B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: '0 4px' }} title={task.content}>{task.content}</div>
+                {days.map(d => {
+                  const active = isDayActive(d);
+                  if (!active) return <div key={d} style={{ textAlign: 'center', fontSize: 12, color: '#E4E4E7' }}>·</div>;
+                  const log = getPodLog(pod.id, task.id, d);
+                  const canEdit = d <= today && d >= addDays(today, -7);
+                  return (
+                    <div key={d} style={{ textAlign: 'center', cursor: canEdit ? 'pointer' : 'default', opacity: d > today ? 0.35 : 1 }} title={d > today ? 'Future dates are locked' : canEdit ? 'Click to cycle: planned → done → missed' : 'Locked (older than 7 days)'} onClick={() => canEdit && setPodLog(pod.id, task.id, d, { status: cycleStatus(log.status) })}>
+                      <span style={{ fontSize: 14 }}>{statusIcon(log.status)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              {(pod.trackerFields || []).filter(f => f.name).map(field => (
+                <div key={field.id} style={{ display: 'grid', gridTemplateColumns: `160px repeat(14, 38px)`, gap: 3, marginBottom: 2, alignItems: 'center' }}>
+                  <div style={{ fontSize: 11, color: '#71717A', paddingLeft: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>↳ {field.name}</div>
+                  {days.map(d => {
+                    const active = isDayActive(d);
+                    if (!active) return <div key={d} />;
+                    const log = getPodLog(pod.id, task.id, d);
+                    const val = (log.trackerValues || {})[field.id] || '';
+                    const canEdit = d <= today && d >= addDays(today, -7);
+                    if (field.type === 'checkbox') return (
+                      <div key={d} style={{ textAlign: 'center', opacity: d > today ? 0.35 : 1 }}>
+                        <input type="checkbox" checked={val === 'true'} disabled={!canEdit} onChange={e => setPodLog(pod.id, task.id, d, { trackerValues: { ...(log.trackerValues || {}), [field.id]: e.target.checked ? 'true' : 'false' } })} style={{ cursor: canEdit ? 'pointer' : 'default' }} />
+                      </div>
+                    );
+                    return (
+                      <input key={d} type="text" value={val} disabled={!canEdit} onChange={e => setPodLog(pod.id, task.id, d, { trackerValues: { ...(log.trackerValues || {}), [field.id]: e.target.value } })} style={{ width: '100%', fontSize: 10, padding: '2px 3px', border: '1px solid #E4E4E7', borderRadius: 3, textAlign: 'center', backgroundColor: canEdit ? 'white' : '#F9FAFB', color: canEdit ? '#18181B' : '#A1A1AA', opacity: d > today ? 0.35 : 1 }} />
+                    );
+                  })}
+                </div>
               ))}
+              <div style={{ height: 8 }} />
             </div>
-          )}
+          ))}
+
+          <div style={{ display: 'flex', gap: 12, marginTop: 8, flexWrap: 'wrap' }}>
+            {[['planned','⬜','#D4D4D8'],['completed','✅','#10B981'],['missed','❌','#EF4444']].map(([s,icon,color]) => (
+              <span key={s} style={{ fontSize: 11, color, display: 'flex', alignItems: 'center', gap: 4 }}>{icon} {s}</span>
+            ))}
+            <span style={{ fontSize: 11, color: '#A1A1AA' }}>· = not scheduled · click to cycle · future dates locked · editable: today &amp; past 7 days</span>
+          </div>
         </>
       );
     };
-
 
     return (
       <div style={{ display: 'flex', gap: 16, overflow: 'hidden' }}>

@@ -19,6 +19,18 @@
 
 | ID | Date | Summary |
 |----|------|---------|
+| FEAT-024 | 2026-04-17 | **Obsidian-style relationship graph v2** — complete rewrite with: force-directed physics simulation (300 iterations, repulsion + spring + centering forces); text-only nodes (no circles) like Obsidian; mouse wheel zoom with 30%-300% bounds; drag to pan canvas; drag nodes to reposition; hover highlights connections (unconnected nodes/edges dimmed); zoom controls (+/-/reset buttons); background grid for depth perception |
+
+## 🐛 Completed Bug Fixes
+
+| ID | Date | Summary |
+|----|------|---------|
+| ERR-027 | 2026-04-17 | **Focus Mode "Link tasks" button not working** — typo in `addRelationship` function: called `generateRelationship()` but function was named `generateExplanation()`; fixed function name so relationships are properly created |
+
+## ✅ Completed Features (continued)
+
+| ID | Date | Summary |
+|----|------|---------|
 | FEAT-023 | 2026-04-16 | **Obsidian-style relationship graph visualization** — redesigned relationship graph with force-directed layout simulation; nodes repel each other while connected nodes attract; hover to highlight connections; relationship types shown with icons and colors (Blocks ⏸️, Pairs With 👥, Helps Reach 🎯, Repeats As 🔁) |
 | FEAT-022 | 2026-04-16 | **Focus Mode navigation and task graph change handling** — clicking task title now always goes to initial Focus Mode screen (project/linkage selection) not questions page; added warning dialog when changing task graph that links to other tasks will be removed; relationships enforced to be within same task graph |
 | FEAT-021 | 2026-04-16 | **Freedom Mode unresolved tasks UX** — current session tasks visible immediately below input; changed "Show pending Captures" to "Unresolved Tasks" header; removed toggle button for ADHD-friendly design |
@@ -92,6 +104,7 @@
 
 | ID | Date | Summary |
 |----|------|---------|
+| ERR-026 | 2026-04-17 | **Work Mode Waves view dropdown missing List and kanban showing wrong data** — added List option to Waves dropdown; fixed WavesView kanban to use locally defined waveKanbanLanes with proper waveTasks categorization |
 | ERR-025 | 2026-04-16 | **Work Mode Waves view not showing** — created WavesView component to render waves when contextFilter === 'waves'; supports Kanban, WorkIQ 4×4, and DailyZen strategies |
 | ERR-024 | 2026-04-16 | **Work Mode strategy dropdown missing for Waves** — added strategy dropdown for Waves view with Kanban, WorkIQ 4×4, and DailyZen options |
 | ERR-023 | 2026-04-16 | **Work Mode last pool not showing tasks by default** — added useEffect to set contextFilter to 'pools' when last pool is loaded from localStorage |

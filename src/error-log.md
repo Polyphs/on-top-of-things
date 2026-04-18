@@ -1,7 +1,18 @@
 # OT² Error Log
 
 > Format: Each entry has a status badge — `[OPEN]` · `[DEV COMPLETE]` · `[VERIFIED]`
-> Baseline: **2026-W16-1** · Last updated: 2026-04-11
+> Baseline: **2026-W16-1** · Last updated: 2026-04-17
+
+---
+
+## ERR-027 · Focus Mode "Link tasks" button does nothing `[DEV COMPLETE]`
+
+**Reported:** 2026-04-17
+**Mode:** Focus Mode → Task Graph → Set relationships
+**Description:** When selecting tasks and clicking "Link tasks" button, nothing happens. Relationships are not created and no error is shown.
+**Root Cause:** Typo in `addRelationship` function inside `FocusMode` component. Line 1787 called `generateRelationship(task.id, ...)` but the async function was declared as `generateExplanation` (line 1769). This caused a `ReferenceError: generateRelationship is not defined` that silently failed.
+**Fix:** Changed `generateRelationship(task.id, ...)` to `generateExplanation(task.id, ...)` on line 1787.
+**Files changed:** `OT2_v3_Pool_Pod_Blink.jsx`
 
 ---
 

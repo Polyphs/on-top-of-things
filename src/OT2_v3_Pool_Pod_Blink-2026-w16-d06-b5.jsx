@@ -1,12 +1,11 @@
 // ============================================================================
-// CURRENT CHANGE: Rewrite PoolView ripples branch to match StressTest pattern
+// CURRENT CHANGE: Rewrite RecurringView to match StressTest Ripples pattern
 // CHANGE DATE: 2026-W16-d06
-// CHANGE REASON: Previous edits targeted the wrong (legacy PodView) code path.
-//                The active code path is PoolView's `poolStrategyView === 'ripples'`
-//                branch, which still showed a horizontal 7-day checkbox grid.
-// EXPECTED IMPACT: Work Mode > Task Graphs > Recurring now shows per-task cards
-//                  with Today's Planned/Done/Skipped + inline tracker inputs.
-// BACKUP: OT2_v3_Pool_Pod_Blink-2026-w16-d06-b6.jsx
+// CHANGE REASON: Previous grid/calendar layout was not usable; user requested the
+//                simpler per-task card layout from OT2_StressTest.jsx (Ripples view)
+// EXPECTED IMPACT: Work Mode > Task Graphs > Recurring - cards with Today's
+//                  Planned/Done/Skipped buttons + inline tracker inputs per task
+// BACKUP: OT2_v3_Pool_Pod_Blink-2026-w16-d06-b5.jsx
 // ============================================================================
 //
 // COMPLETED CHANGE (2026-W16-d06-b5): Ripples-style RecurringView
@@ -2547,24 +2546,15 @@ function WorkMode({
       );
     }
 
-    // ── RECURRING strategy (Ripples behavior inside Task Graph) ──
-    // Matches StressTest RippleTaskCard pattern: per-task card with Today's
-    // Planned/Done/Skipped buttons and inline tracker inputs.
+    // ── RECURRING strategy (ripple behavior inside Task Graph) ──
     if (poolStrategyView === 'ripples') {
       const poolRecurring = poolTasks.filter(t => t.recurrenceEnabled && t.recurrence);
-      const today = todayStr();
-
-      const statusColors = {
-        planned:   { bg: '#F4F4F5', border: '#E4E4E7', text: '#71717A' },
-        completed: { bg: '#F0FDF4', border: '#86EFAC', text: '#10B981' },
-        missed:    { bg: '#FEF2F2', border: '#FECACA', text: '#EF4444' },
+      const days = Array.from({ length: 7 }, (_, i) => addDays(todayStr(), -6 + i));
+      const cycleStatus = (cur) => {
+        const c = ['planned', 'completed', 'missed'];
+        return c[(c.indexOf(cur) + 1) % 3];
       };
-      const statusButtons = [
-        { key: 'planned',   label: 'Planned' },
-        { key: 'completed', label: 'Done' },
-        { key: 'missed',    label: 'Skipped' },
-      ];
-
+      const statusIcon = (s) => ({ completed: '✅', missed: '❌', planned: '⬜' }[s] || '⬜');
       return (
         <>
           <PoolHeader />
@@ -2575,114 +2565,57 @@ function WorkMode({
             <EmptyState icon={<Icons.Ripple className="w-8 h-8" />} message="No recurring tasks in this Task Graph yet. Enable recurrence in Focus Mode." />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {poolRecurring.map(task => {
-                const log = getRecurrenceLog(task.id, today);
-                const colors = statusColors[log.status] || statusColors.planned;
-                const trackers = task.recurrence?.trackers || [];
-                const legacyLabel = (task.recurrenceTrackerLabel || '').trim();
-
-                const setStatus = (status) => setRecurrenceLog(task.id, today, { status });
-                const setTracker = (id, value) => setRecurrenceLog(task.id, today, {
-                  trackerValues: { ...(log.trackerValues || {}), [id]: value }
-                });
-
-                return (
-                  <div
-                    key={task.id}
-                    style={{
-                      backgroundColor: colors.bg,
-                      border: `1px solid ${colors.border}`,
-                      borderRadius: 10,
-                      padding: 12,
-                    }}
-                  >
-                    {/* Header: title + recurrence summary badge */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 4, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 14, fontWeight: 600, color: '#18181B', flex: 1, minWidth: 0 }}>{task.content}</span>
-                      <span style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        backgroundColor: '#0EA5E915',
-                        color: '#0369A1',
-                        fontSize: 11,
-                        padding: '2px 8px',
-                        borderRadius: 6,
-                        fontWeight: 500,
-                        flexShrink: 0,
-                      }}>
-                        {recurrenceSummaryLine(task)}
-                      </span>
-                    </div>
-
-                    {/* Today's check-in row */}
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 12, color: '#71717A', fontWeight: 500 }}>Today:</span>
-                      {statusButtons.map(s => {
-                        const active = log.status === s.key;
-                        const sc = statusColors[s.key];
-                        return (
-                          <button
-                            key={s.key}
-                            onClick={() => setStatus(s.key)}
-                            style={{
-                              padding: '4px 12px',
-                              borderRadius: 6,
-                              border: `1px solid ${active ? sc.text : '#E4E4E7'}`,
-                              backgroundColor: active ? sc.text : 'white',
-                              color: active ? 'white' : '#71717A',
-                              fontSize: 12,
-                              fontWeight: 500,
-                              cursor: 'pointer',
-                            }}
-                          >
-                            {s.label}
-                          </button>
-                        );
-                      })}
-
-                      {/* New trackers array (tracker.label placeholder) */}
-                      {trackers.map(tracker => (
-                        <input
-                          key={tracker.id}
-                          type={tracker.valueType === 'number' ? 'number' : 'text'}
-                          placeholder={tracker.label || 'Value'}
-                          value={(log.trackerValues || {})[tracker.id] || ''}
-                          onChange={e => setTracker(tracker.id, e.target.value)}
-                          style={{
-                            flex: 1,
-                            minWidth: 100,
-                            padding: '4px 8px',
-                            fontSize: 12,
-                            border: '1px solid #E4E4E7',
-                            borderRadius: 6,
-                            backgroundColor: 'white',
-                          }}
-                        />
+              {poolRecurring.map(task => (
+                <div key={task.id} style={styles.workTaskCard}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                    <span style={styles.workTaskTitle}>{task.content}</span>
+                    <span style={styles.podBadge}>{recurrenceSummaryLine(task)}</span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: `repeat(7, minmax(36px, 1fr))`, gap: 6, marginBottom: 8 }}>
+                    {days.map(d => {
+                      const log = getRecurrenceLog(task.id, d);
+                      return (
+                        <button
+                          key={d}
+                          style={{ border: '1px solid #E4E4E7', borderRadius: 6, background: 'white', padding: '6px 0', cursor: 'pointer' }}
+                          title={`${d} · click to cycle status`}
+                          onClick={() => setRecurrenceLog(task.id, d, { status: cycleStatus(log.status) })}
+                        >
+                          {statusIcon(log.status)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {((task.recurrence?.trackers?.length > 0) || (task.recurrenceTrackerLabel || '').trim()) && (
+                    <div style={{ marginTop: 8 }}>
+                      {/* Support both new trackers array and old recurrenceTrackerLabel */}
+                      {task.recurrence?.trackers?.map(tracker => (
+                        <div key={tracker.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                          <span style={{ fontSize: 12, color: '#71717A', minWidth: 44 }}>{tracker.label}:</span>
+                          <input
+                            style={{ ...styles.input, maxWidth: 160, padding: '6px 8px' }}
+                            placeholder="Enter value"
+                            value={getRecurrenceLog(task.id, todayStr()).trackerValues?.[tracker.id] || ''}
+                            onChange={e => setRecurrenceLog(task.id, todayStr(), { trackerValues: { ...getRecurrenceLog(task.id, todayStr()).trackerValues, [tracker.id]: e.target.value } })}
+                          />
+                        </div>
                       ))}
-
-                      {/* Legacy fallback: single recurrenceTrackerLabel */}
-                      {!trackers.length && legacyLabel && (
-                        <input
-                          type="text"
-                          placeholder={legacyLabel}
-                          value={(log.trackerValues || {}).t1 || ''}
-                          onChange={e => setTracker('t1', e.target.value)}
-                          style={{
-                            flex: 1,
-                            minWidth: 100,
-                            padding: '4px 8px',
-                            fontSize: 12,
-                            border: '1px solid #E4E4E7',
-                            borderRadius: 6,
-                            backgroundColor: 'white',
-                          }}
-                        />
+                      {/* Fallback for old recurrenceTrackerLabel */}
+                      {!task.recurrence?.trackers?.length && (task.recurrenceTrackerLabel || '').trim() && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontSize: 12, color: '#71717A', minWidth: 44 }}>{task.recurrenceTrackerLabel}:</span>
+                          <input
+                            style={{ ...styles.input, maxWidth: 160, padding: '6px 8px' }}
+                            placeholder="Enter value"
+                            value={getRecurrenceLog(task.id, todayStr()).trackerValues?.t1 || ''}
+                            onChange={e => setRecurrenceLog(task.id, todayStr(), { trackerValues: { t1: e.target.value } })}
+                          />
+                        </div>
                       )}
                     </div>
-                  </div>
-                );
-              })}
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </>

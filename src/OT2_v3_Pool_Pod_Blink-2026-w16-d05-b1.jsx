@@ -1,46 +1,4 @@
-// ============================================================================
-// CURRENT CHANGE: Rewrite PoolView ripples branch to match StressTest pattern
-// CHANGE DATE: 2026-W16-d06
-// CHANGE REASON: Previous edits targeted the wrong (legacy PodView) code path.
-//                The active code path is PoolView's `poolStrategyView === 'ripples'`
-//                branch, which still showed a horizontal 7-day checkbox grid.
-// EXPECTED IMPACT: Work Mode > Task Graphs > Recurring now shows per-task cards
-//                  with Today's Planned/Done/Skipped + inline tracker inputs.
-// BACKUP: OT2_v3_Pool_Pod_Blink-2026-w16-d06-b6.jsx
-// ============================================================================
-//
-// COMPLETED CHANGE (2026-W16-d06-b5): Ripples-style RecurringView
-// - Replaced calendar grid with per-task cards (RecurringTaskCard)
-// - Each card: task title, recurrence summary badge, Today's status buttons,
-//   inline tracker inputs
-// - Status buttons: Planned / Done / Skipped (matches StressTest pattern)
-// - Only today is editable; card color reflects status (gray/green/red)
-// - Removed date-range picker, calendar popup, and 11-day grid
-// ============================================================================
-//
-// COMPLETED CHANGE (2026-W16-d06-b4): Fixed Date Headers & Edit Window
-// - Date headers now show "Apr 13, 14, 15..." with month label at top
-// - Editable window: past 5 days + today only (6 days total)
-// - Future dates locked (not selectable/editable)
-// - Tracker fields hidden for future dates
-// - Today highlighted in amber with "TODAY" label
-// ============================================================================
-//
-// COMPLETED CHANGE (2026-W16-d06-b3): Calendar Date Picker for RecurringView
-// - Added calendar icon with date range display (e.g., "Apr 13 - Apr 23")
-// - Changed to 11-day window: 5 days before + center date + 5 days after
-// - Added month calendar popup with clickable date selection
-// - Calendar highlights: scheduled days (green dot), selected date (blue), today (amber)
-// ============================================================================
-
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { runRelationshipTests } from './relationship-regression-tests.jsx';
-
-// Expose regression tests to window for console access
-if (typeof window !== 'undefined') {
-  window.runRegressionTests = runRelationshipTests;
-  console.log('[OT²] Regression tests available. Run window.runRegressionTests() in console to execute.');
-}
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 // ============================================================================
 // MOCK AUTH HOOK (standalone version - no external dependencies)
@@ -1826,7 +1784,7 @@ function FocusMode({
     };
 
     // Add relationship with explanation (async, but we don't wait for it)
-    generateExplanation(task.id, rel.toTaskId, rel.type).then(explanation => {
+    generateRelationship(task.id, rel.toTaskId, rel.type).then(explanation => {
       setFocusRelationships(prev => {
         const idx = prev.findIndex(r => r.toTaskId === rel.toTaskId && r.type === rel.type);
         if (idx >= 0) {
@@ -2547,24 +2505,15 @@ function WorkMode({
       );
     }
 
-    // ── RECURRING strategy (Ripples behavior inside Task Graph) ──
-    // Matches StressTest RippleTaskCard pattern: per-task card with Today's
-    // Planned/Done/Skipped buttons and inline tracker inputs.
+    // ── RECURRING strategy (ripple behavior inside Task Graph) ──
     if (poolStrategyView === 'ripples') {
       const poolRecurring = poolTasks.filter(t => t.recurrenceEnabled && t.recurrence);
-      const today = todayStr();
-
-      const statusColors = {
-        planned:   { bg: '#F4F4F5', border: '#E4E4E7', text: '#71717A' },
-        completed: { bg: '#F0FDF4', border: '#86EFAC', text: '#10B981' },
-        missed:    { bg: '#FEF2F2', border: '#FECACA', text: '#EF4444' },
+      const days = Array.from({ length: 7 }, (_, i) => addDays(todayStr(), -6 + i));
+      const cycleStatus = (cur) => {
+        const c = ['planned', 'completed', 'missed'];
+        return c[(c.indexOf(cur) + 1) % 3];
       };
-      const statusButtons = [
-        { key: 'planned',   label: 'Planned' },
-        { key: 'completed', label: 'Done' },
-        { key: 'missed',    label: 'Skipped' },
-      ];
-
+      const statusIcon = (s) => ({ completed: '✅', missed: '❌', planned: '⬜' }[s] || '⬜');
       return (
         <>
           <PoolHeader />
@@ -2575,114 +2524,57 @@ function WorkMode({
             <EmptyState icon={<Icons.Ripple className="w-8 h-8" />} message="No recurring tasks in this Task Graph yet. Enable recurrence in Focus Mode." />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {poolRecurring.map(task => {
-                const log = getRecurrenceLog(task.id, today);
-                const colors = statusColors[log.status] || statusColors.planned;
-                const trackers = task.recurrence?.trackers || [];
-                const legacyLabel = (task.recurrenceTrackerLabel || '').trim();
-
-                const setStatus = (status) => setRecurrenceLog(task.id, today, { status });
-                const setTracker = (id, value) => setRecurrenceLog(task.id, today, {
-                  trackerValues: { ...(log.trackerValues || {}), [id]: value }
-                });
-
-                return (
-                  <div
-                    key={task.id}
-                    style={{
-                      backgroundColor: colors.bg,
-                      border: `1px solid ${colors.border}`,
-                      borderRadius: 10,
-                      padding: 12,
-                    }}
-                  >
-                    {/* Header: title + recurrence summary badge */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 4, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 14, fontWeight: 600, color: '#18181B', flex: 1, minWidth: 0 }}>{task.content}</span>
-                      <span style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        backgroundColor: '#0EA5E915',
-                        color: '#0369A1',
-                        fontSize: 11,
-                        padding: '2px 8px',
-                        borderRadius: 6,
-                        fontWeight: 500,
-                        flexShrink: 0,
-                      }}>
-                        {recurrenceSummaryLine(task)}
-                      </span>
-                    </div>
-
-                    {/* Today's check-in row */}
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 12, color: '#71717A', fontWeight: 500 }}>Today:</span>
-                      {statusButtons.map(s => {
-                        const active = log.status === s.key;
-                        const sc = statusColors[s.key];
-                        return (
-                          <button
-                            key={s.key}
-                            onClick={() => setStatus(s.key)}
-                            style={{
-                              padding: '4px 12px',
-                              borderRadius: 6,
-                              border: `1px solid ${active ? sc.text : '#E4E4E7'}`,
-                              backgroundColor: active ? sc.text : 'white',
-                              color: active ? 'white' : '#71717A',
-                              fontSize: 12,
-                              fontWeight: 500,
-                              cursor: 'pointer',
-                            }}
-                          >
-                            {s.label}
-                          </button>
-                        );
-                      })}
-
-                      {/* New trackers array (tracker.label placeholder) */}
-                      {trackers.map(tracker => (
-                        <input
-                          key={tracker.id}
-                          type={tracker.valueType === 'number' ? 'number' : 'text'}
-                          placeholder={tracker.label || 'Value'}
-                          value={(log.trackerValues || {})[tracker.id] || ''}
-                          onChange={e => setTracker(tracker.id, e.target.value)}
-                          style={{
-                            flex: 1,
-                            minWidth: 100,
-                            padding: '4px 8px',
-                            fontSize: 12,
-                            border: '1px solid #E4E4E7',
-                            borderRadius: 6,
-                            backgroundColor: 'white',
-                          }}
-                        />
+              {poolRecurring.map(task => (
+                <div key={task.id} style={styles.workTaskCard}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                    <span style={styles.workTaskTitle}>{task.content}</span>
+                    <span style={styles.podBadge}>{recurrenceSummaryLine(task)}</span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: `repeat(7, minmax(36px, 1fr))`, gap: 6, marginBottom: 8 }}>
+                    {days.map(d => {
+                      const log = getRecurrenceLog(task.id, d);
+                      return (
+                        <button
+                          key={d}
+                          style={{ border: '1px solid #E4E4E7', borderRadius: 6, background: 'white', padding: '6px 0', cursor: 'pointer' }}
+                          title={`${d} · click to cycle status`}
+                          onClick={() => setRecurrenceLog(task.id, d, { status: cycleStatus(log.status) })}
+                        >
+                          {statusIcon(log.status)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {((task.recurrence?.trackers?.length > 0) || (task.recurrenceTrackerLabel || '').trim()) && (
+                    <div style={{ marginTop: 8 }}>
+                      {/* Support both new trackers array and old recurrenceTrackerLabel */}
+                      {task.recurrence?.trackers?.map(tracker => (
+                        <div key={tracker.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                          <span style={{ fontSize: 12, color: '#71717A', minWidth: 44 }}>{tracker.label}:</span>
+                          <input
+                            style={{ ...styles.input, maxWidth: 160, padding: '6px 8px' }}
+                            placeholder="Enter value"
+                            value={getRecurrenceLog(task.id, todayStr()).trackerValues?.[tracker.id] || ''}
+                            onChange={e => setRecurrenceLog(task.id, todayStr(), { trackerValues: { ...getRecurrenceLog(task.id, todayStr()).trackerValues, [tracker.id]: e.target.value } })}
+                          />
+                        </div>
                       ))}
-
-                      {/* Legacy fallback: single recurrenceTrackerLabel */}
-                      {!trackers.length && legacyLabel && (
-                        <input
-                          type="text"
-                          placeholder={legacyLabel}
-                          value={(log.trackerValues || {}).t1 || ''}
-                          onChange={e => setTracker('t1', e.target.value)}
-                          style={{
-                            flex: 1,
-                            minWidth: 100,
-                            padding: '4px 8px',
-                            fontSize: 12,
-                            border: '1px solid #E4E4E7',
-                            borderRadius: 6,
-                            backgroundColor: 'white',
-                          }}
-                        />
+                      {/* Fallback for old recurrenceTrackerLabel */}
+                      {!task.recurrence?.trackers?.length && (task.recurrenceTrackerLabel || '').trim() && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontSize: 12, color: '#71717A', minWidth: 44 }}>{task.recurrenceTrackerLabel}:</span>
+                          <input
+                            style={{ ...styles.input, maxWidth: 160, padding: '6px 8px' }}
+                            placeholder="Enter value"
+                            value={getRecurrenceLog(task.id, todayStr()).trackerValues?.t1 || ''}
+                            onChange={e => setRecurrenceLog(task.id, todayStr(), { trackerValues: { t1: e.target.value } })}
+                          />
+                        </div>
                       )}
                     </div>
-                  </div>
-                );
-              })}
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </>
@@ -2788,128 +2680,10 @@ function WorkMode({
       );
     };
 
-    // ── Recurring sub-view: per-task cards (Ripples style from StressTest) ──
-    // Each task shows: title, recurrence summary badge, Today's Planned/Done/Skipped
-    // buttons, and tracker inputs. Only today is editable.
-    const RecurringTaskCard = ({ task }) => {
-      const log = getPodLog(pod.id, task.id, today);
-      const trackerFields = (pod.trackerFields || []).filter(f => f.name);
-
-      const statusColors = {
-        planned: { bg: '#F4F4F5', border: '#E4E4E7', text: '#71717A' },
-        completed: { bg: '#F0FDF4', border: '#86EFAC', text: '#10B981' },
-        missed: { bg: '#FEF2F2', border: '#FECACA', text: '#EF4444' },
-      };
-      const colors = statusColors[log.status] || statusColors.planned;
-
-      const statusButtons = [
-        { key: 'planned', label: 'Planned' },
-        { key: 'completed', label: 'Done' },
-        { key: 'missed', label: 'Skipped' },
-      ];
-
-      const setStatus = (status) => setPodLog(pod.id, task.id, today, { status });
-      const setTracker = (fieldId, value) => setPodLog(pod.id, task.id, today, {
-        trackerValues: { ...(log.trackerValues || {}), [fieldId]: value }
-      });
-
-      return (
-        <div style={{
-          backgroundColor: colors.bg,
-          border: `1px solid ${colors.border}`,
-          borderRadius: 10,
-          padding: 12,
-          marginBottom: 10,
-        }}>
-          {/* Header: title + recurrence badge */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 6, alignItems: 'flex-start' }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: '#18181B', marginBottom: 4 }}>
-                {task.content}
-              </div>
-              <div style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 4,
-                backgroundColor: '#0EA5E915',
-                color: '#0369A1',
-                fontSize: 11,
-                padding: '2px 8px',
-                borderRadius: 6,
-                fontWeight: 500,
-              }}>
-                <Icons.Calendar className="w-3 h-3" />
-                {podSummaryLine(pod)}
-              </div>
-            </div>
-          </div>
-
-          {/* Today's check-in row */}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 12, color: '#71717A', fontWeight: 500 }}>Today:</span>
-            {statusButtons.map(s => {
-              const active = log.status === s.key;
-              return (
-                <button
-                  key={s.key}
-                  onClick={() => setStatus(s.key)}
-                  style={{
-                    padding: '4px 12px',
-                    borderRadius: 6,
-                    border: `1px solid ${active ? colors.text : '#E4E4E7'}`,
-                    backgroundColor: active ? colors.text : 'white',
-                    color: active ? 'white' : '#71717A',
-                    fontSize: 12,
-                    fontWeight: 500,
-                    cursor: 'pointer',
-                  }}
-                >
-                  {s.label}
-                </button>
-              );
-            })}
-
-            {/* Tracker inputs inline */}
-            {trackerFields.map(field => {
-              const val = (log.trackerValues || {})[field.id] || '';
-              if (field.type === 'checkbox') {
-                return (
-                  <label key={field.id} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#71717A' }}>
-                    <input
-                      type="checkbox"
-                      checked={val === 'true'}
-                      onChange={e => setTracker(field.id, e.target.checked ? 'true' : 'false')}
-                      style={{ cursor: 'pointer' }}
-                    />
-                    {field.name}
-                  </label>
-                );
-              }
-              return (
-                <input
-                  key={field.id}
-                  type={field.type === 'number' ? 'number' : 'text'}
-                  placeholder={field.name}
-                  value={val}
-                  onChange={e => setTracker(field.id, e.target.value)}
-                  style={{
-                    flex: 1,
-                    minWidth: 100,
-                    padding: '4px 8px',
-                    fontSize: 12,
-                    border: '1px solid #E4E4E7',
-                    borderRadius: 6,
-                    backgroundColor: 'white',
-                  }}
-                />
-              );
-            })}
-          </div>
-        </div>
-      );
-    };
-
+    // ── Recurring sub-view (calendar grid) ──
     const RecurringView = () => {
+      const days = Array.from({ length: 14 }, (_, i) => addDays(addDays(today, -6), i));
+
       const isDayActive = (dayStr) => {
         if (!pod) return false;
         const r = pod.recurrence;
@@ -2927,55 +2701,81 @@ function WorkMode({
         return true;
       };
 
-      const todayScheduled = isDayActive(today);
+      const statusIcon = (s) => ({ completed: '✅', missed: '❌', planned: '⬜' }[s] || '⬜');
+      const cycleStatus = (cur) => { const c = ['planned','completed','missed']; return c[(c.indexOf(cur)+1)%3]; };
 
       return (
         <>
-          {/* Header */}
-          <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-            <p style={{ fontSize: 13, color: '#71717A', margin: 0 }}>
-              {podTasks.length} recurring task{podTasks.length === 1 ? '' : 's'} · {podSummaryLine(pod)}
-            </p>
-            {!todayScheduled && (
-              <span style={{ fontSize: 11, color: '#F59E0B', fontWeight: 500 }}>
-                ⚠ Not scheduled today
-              </span>
-            )}
+          <div style={{ marginBottom: 10 }}>
+            <p style={{ fontSize: 12, color: '#71717A' }}>{podSummaryLine(pod)} · {podTasks.length} tasks assigned</p>
           </div>
 
-          {/* Info banner */}
-          <div style={{
-            backgroundColor: '#F0F9FF',
-            border: '1px solid #BAE6FD',
-            borderRadius: 8,
-            padding: '8px 12px',
-            marginBottom: 12,
-            fontSize: 12,
-            color: '#0369A1',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-          }}>
-            <Icons.Ripple className="w-4 h-4" />
-            <strong>Recurring view</strong> inside Task Graph for <strong>{pod.name}</strong>
+          {/* Day header */}
+          <div style={{ display: 'grid', gridTemplateColumns: `160px repeat(14, 38px)`, gap: 3, marginBottom: 4, overflowX: 'auto' }}>
+            <div style={{ fontSize: 11, color: '#A1A1AA', padding: '2px 4px' }}>Task / Tracker</div>
+            {days.map(d => {
+              const isT = d === today;
+              const active = isDayActive(d);
+              return (
+                <div key={d} style={{ textAlign: 'center', fontSize: 10, color: isT ? '#FF6B6B' : (active ? '#18181B' : '#D4D4D8'), fontWeight: isT ? 700 : 400, lineHeight: 1.3 }}>
+                  <div>{WEEK_DAYS_SHORT[(new Date(d).getDay() + 6) % 7]}</div>
+                  <div>{new Date(d).getDate()}</div>
+                </div>
+              );
+            })}
           </div>
 
-          {podTasks.length === 0 ? (
-            <EmptyState
-              icon={<Icons.Ripple className="w-8 h-8" />}
-              message="No tasks assigned. Use Focus Mode to add tasks to this Ripple."
-            />
-          ) : (
-            <div>
-              {podTasks.map(task => (
-                <RecurringTaskCard key={task.id} task={task} />
+          {podTasks.length === 0 && <p style={{ fontSize: 13, color: '#A1A1AA', padding: '8px 0' }}>No tasks assigned. Use Focus Mode to add tasks to this Pod.</p>}
+
+          {podTasks.map(task => (
+            <div key={task.id}>
+              <div style={{ display: 'grid', gridTemplateColumns: `160px repeat(14, 38px)`, gap: 3, marginBottom: 2, alignItems: 'center' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#18181B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: '0 4px' }} title={task.content}>{task.content}</div>
+                {days.map(d => {
+                  const active = isDayActive(d);
+                  if (!active) return <div key={d} style={{ textAlign: 'center', fontSize: 12, color: '#E4E4E7' }}>·</div>;
+                  const log = getPodLog(pod.id, task.id, d);
+                  const canEdit = d <= today && d >= addDays(today, -7);
+                  return (
+                    <div key={d} style={{ textAlign: 'center', cursor: canEdit ? 'pointer' : 'default', opacity: d > today ? 0.35 : 1 }} title={d > today ? 'Future dates are locked' : canEdit ? 'Click to cycle: planned → done → missed' : 'Locked (older than 7 days)'} onClick={() => canEdit && setPodLog(pod.id, task.id, d, { status: cycleStatus(log.status) })}>
+                      <span style={{ fontSize: 14 }}>{statusIcon(log.status)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              {(pod.trackerFields || []).filter(f => f.name).map(field => (
+                <div key={field.id} style={{ display: 'grid', gridTemplateColumns: `160px repeat(14, 38px)`, gap: 3, marginBottom: 2, alignItems: 'center' }}>
+                  <div style={{ fontSize: 11, color: '#71717A', paddingLeft: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>↳ {field.name}</div>
+                  {days.map(d => {
+                    const active = isDayActive(d);
+                    if (!active) return <div key={d} />;
+                    const log = getPodLog(pod.id, task.id, d);
+                    const val = (log.trackerValues || {})[field.id] || '';
+                    const canEdit = d <= today && d >= addDays(today, -7);
+                    if (field.type === 'checkbox') return (
+                      <div key={d} style={{ textAlign: 'center', opacity: d > today ? 0.35 : 1 }}>
+                        <input type="checkbox" checked={val === 'true'} disabled={!canEdit} onChange={e => setPodLog(pod.id, task.id, d, { trackerValues: { ...(log.trackerValues || {}), [field.id]: e.target.checked ? 'true' : 'false' } })} style={{ cursor: canEdit ? 'pointer' : 'default' }} />
+                      </div>
+                    );
+                    return (
+                      <input key={d} type="text" value={val} disabled={!canEdit} onChange={e => setPodLog(pod.id, task.id, d, { trackerValues: { ...(log.trackerValues || {}), [field.id]: e.target.value } })} style={{ width: '100%', fontSize: 10, padding: '2px 3px', border: '1px solid #E4E4E7', borderRadius: 3, textAlign: 'center', backgroundColor: canEdit ? 'white' : '#F9FAFB', color: canEdit ? '#18181B' : '#A1A1AA', opacity: d > today ? 0.35 : 1 }} />
+                    );
+                  })}
+                </div>
               ))}
+              <div style={{ height: 8 }} />
             </div>
-          )}
+          ))}
+
+          <div style={{ display: 'flex', gap: 12, marginTop: 8, flexWrap: 'wrap' }}>
+            {[['planned','⬜','#D4D4D8'],['completed','✅','#10B981'],['missed','❌','#EF4444']].map(([s,icon,color]) => (
+              <span key={s} style={{ fontSize: 11, color, display: 'flex', alignItems: 'center', gap: 4 }}>{icon} {s}</span>
+            ))}
+            <span style={{ fontSize: 11, color: '#A1A1AA' }}>· = not scheduled · click to cycle · future dates locked · editable: today &amp; past 7 days</span>
+          </div>
         </>
       );
     };
-
 
     return (
       <div style={{ display: 'flex', gap: 16, overflow: 'hidden' }}>
@@ -3286,130 +3086,10 @@ function WorkMode({
 }
 
 // ============================================================================
-// RELATIONSHIP GRAPH - Obsidian-style force-directed graph
+// RELATIONSHIP GRAPH - Simple circular layout with new relationship types
 // ============================================================================
 function RelationshipGraph({ pool, tasks, allTasks, relationships, onTaskClick }) {
-  const svgRef = useRef(null);
   const [hoveredNode, setHoveredNode] = useState(null);
-  const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [isPanning, setIsPanning] = useState(false);
-  const [panStart, setPanStart] = useState({ x: 0, y: 0 });
-  const [draggedNode, setDraggedNode] = useState(null);
-
-  // Build relationship map for quick lookup
-  const relationshipMap = useMemo(() => {
-    const map = new Map();
-    relationships.forEach(rel => {
-      if (!map.has(rel.fromTaskId)) map.set(rel.fromTaskId, []);
-      if (!map.has(rel.toTaskId)) map.set(rel.toTaskId, []);
-      map.get(rel.fromTaskId).push(rel);
-      map.get(rel.toTaskId).push(rel);
-    });
-    return map;
-  }, [relationships]);
-
-  // Get connected node IDs for highlighting
-  const getConnectedNodes = useCallback((nodeId) => {
-    const connected = new Set();
-    const rels = relationshipMap.get(nodeId) || [];
-    rels.forEach(rel => {
-      connected.add(rel.fromTaskId === nodeId ? rel.toTaskId : rel.fromTaskId);
-    });
-    return connected;
-  }, [relationshipMap]);
-
-  // Initialize positions with force-directed simulation
-  const nodePositions = useMemo(() => {
-    if (!tasks || tasks.length === 0) return {};
-
-    const positions = {};
-    const width = 800;
-    const height = 500;
-    const centerX = width / 2;
-    const centerY = height / 2;
-
-    // Initialize with random positions near center
-    tasks.forEach((task, i) => {
-      const angle = (2 * Math.PI * i) / tasks.length;
-      const radius = 50 + Math.random() * 50;
-      positions[task.id] = {
-        x: centerX + radius * Math.cos(angle),
-        y: centerY + radius * Math.sin(angle),
-        vx: 0,
-        vy: 0,
-      };
-    });
-
-    // Force-directed simulation
-    const iterations = 300;
-    const repulsionForce = 2000;
-    const springLength = 120;
-    const springForce = 0.05;
-    const centerForce = 0.01;
-    const damping = 0.9;
-
-    for (let iter = 0; iter < iterations; iter++) {
-      // Calculate repulsion between all nodes
-      for (let i = 0; i < tasks.length; i++) {
-        for (let j = i + 1; j < tasks.length; j++) {
-          const a = positions[tasks[i].id];
-          const b = positions[tasks[j].id];
-          const dx = a.x - b.x;
-          const dy = a.y - b.y;
-          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          const force = repulsionForce / (dist * dist);
-          const fx = (dx / dist) * force;
-          const fy = (dy / dist) * force;
-          a.vx += fx;
-          a.vy += fy;
-          b.vx -= fx;
-          b.vy -= fy;
-        }
-      }
-
-      // Calculate spring attraction along relationships
-      relationships.forEach(rel => {
-        const a = positions[rel.fromTaskId];
-        const b = positions[rel.toTaskId];
-        if (!a || !b) return;
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
-        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        const force = (dist - springLength) * springForce;
-        const fx = (dx / dist) * force;
-        const fy = (dy / dist) * force;
-        a.vx += fx;
-        a.vy += fy;
-        b.vx -= fx;
-        b.vy -= fy;
-      });
-
-      // Apply centering force
-      tasks.forEach(task => {
-        const p = positions[task.id];
-        p.vx += (centerX - p.x) * centerForce;
-        p.vy += (centerY - p.y) * centerForce;
-      });
-
-      // Apply velocity and damping
-      tasks.forEach(task => {
-        const p = positions[task.id];
-        p.x += p.vx;
-        p.y += p.vy;
-        p.vx *= damping;
-        p.vy *= damping;
-      });
-    }
-
-    return positions;
-  }, [tasks, relationships]);
-
-  // Track mutable positions for dragging
-  const [currentPositions, setCurrentPositions] = useState(nodePositions);
-  useEffect(() => {
-    setCurrentPositions(nodePositions);
-  }, [nodePositions]);
 
   if (!tasks || tasks.length === 0) {
     return <EmptyState icon={<Icons.GitBranch className="w-8 h-8" />} message="No tasks in this pool to visualize" />;
@@ -3424,242 +3104,116 @@ function RelationshipGraph({ pool, tasks, allTasks, relationships, onTaskClick }
     );
   }
 
-  const handleWheel = (e) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    setZoom(prev => Math.max(0.3, Math.min(3, prev * delta)));
-  };
+  // Calculate positions for nodes in a circular layout
+  const centerX = 300;
+  const centerY = 200;
+  const radius = 150;
+  const nodePositions = {};
 
-  const handleMouseDown = (e) => {
-    if (e.target === svgRef.current) {
-      setIsPanning(true);
-      setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
-    }
-  };
-
-  const handleMouseMove = (e) => {
-    if (isPanning) {
-      setPan({
-        x: e.clientX - panStart.x,
-        y: e.clientY - panStart.y,
-      });
-    }
-    if (draggedNode) {
-      const rect = svgRef.current.getBoundingClientRect();
-      const x = (e.clientX - rect.left - pan.x) / zoom;
-      const y = (e.clientY - rect.top - pan.y) / zoom;
-      setCurrentPositions(prev => ({
-        ...prev,
-        [draggedNode]: { ...prev[draggedNode], x, y },
-      }));
-    }
-  };
-
-  const handleMouseUp = () => {
-    setIsPanning(false);
-    setDraggedNode(null);
-  };
-
-  const connectedNodes = hoveredNode ? getConnectedNodes(hoveredNode) : new Set();
+  tasks.forEach((task, idx) => {
+    const angle = (2 * Math.PI * idx) / tasks.length - Math.PI / 2;
+    nodePositions[task.id] = {
+      x: centerX + radius * Math.cos(angle),
+      y: centerY + radius * Math.sin(angle),
+    };
+  });
 
   return (
     <div style={styles.graphContainer}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <p style={styles.graphTitle}>Task Graph: {pool.name}</p>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <span style={{ fontSize: 12, color: '#71717A' }}>
-            {tasks.length} tasks · {relationships.length} links
-          </span>
-          <button
-            onClick={() => setZoom(prev => Math.max(0.3, prev * 0.8))}
-            style={{ ...styles.zoomBtn, padding: '4px 8px' }}
-            title="Zoom out"
-          >
-            −
-          </button>
-          <span style={{ fontSize: 13, color: '#374151', minWidth: 50, textAlign: 'center' }}>
-            {Math.round(zoom * 100)}%
-          </span>
-          <button
-            onClick={() => setZoom(prev => Math.min(3, prev * 1.25))}
-            style={{ ...styles.zoomBtn, padding: '4px 8px' }}
-            title="Zoom in"
-          >
-            +
-          </button>
-          <button
-            onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}
-            style={{ ...styles.zoomBtn, padding: '4px 10px' }}
-            title="Reset view"
-          >
-            ⟲
-          </button>
-        </div>
-      </div>
+      <p style={styles.graphTitle}>Task Graph: {pool.name}</p>
+      <svg width="600" height="400" style={styles.graphSvg}>
+        {/* Draw relationship lines */}
+        {relationships.map((rel, idx) => {
+          const from = nodePositions[rel.fromTaskId];
+          const to = nodePositions[rel.toTaskId];
+          if (!from || !to) return null;
 
-      <div
-        style={{
-          ...styles.graphSvgWrapper,
-          cursor: isPanning ? 'grabbing' : draggedNode ? 'grabbing' : 'grab',
-        }}
-        onWheel={handleWheel}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-      >
-        <svg
-          ref={svgRef}
-          width="100%"
-          height="100%"
-          viewBox="0 0 800 500"
-          preserveAspectRatio="xMidYMid meet"
-          style={{
-            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-            transformOrigin: '0 0',
-          }}
-        >
-          {/* Background grid for depth perception */}
-          <defs>
-            <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#E5E7EB" strokeWidth="0.5" opacity="0.5" />
-            </pattern>
-          </defs>
-          <rect width="800" height="500" fill="url(#grid)" />
+          const rt = RELATIONSHIP_TYPES.find(x => x.key === rel.type);
 
-          {/* Relationship lines */}
-          {relationships.map((rel, idx) => {
-            const from = currentPositions[rel.fromTaskId];
-            const to = currentPositions[rel.toTaskId];
-            if (!from || !to) return null;
+          // Calculate line direction
+          const dx = to.x - from.x;
+          const dy = to.y - from.y;
+          const len = Math.sqrt(dx * dx + dy * dy) || 1;
+          const nx = dx / len;
+          const ny = dy / len;
 
-            const rt = RELATIONSHIP_TYPES.find(x => x.key === rel.type);
-            const isConnected = hoveredNode && (rel.fromTaskId === hoveredNode || rel.toTaskId === hoveredNode);
-            const isDimmed = hoveredNode && !isConnected;
+          // Offset from node centers
+          const startX = from.x + nx * 35;
+          const startY = from.y + ny * 35;
+          const endX = to.x - nx * 35;
+          const endY = to.y - ny * 35;
 
-            // Calculate arrow positions
-            const dx = to.x - from.x;
-            const dy = to.y - from.y;
-            const len = Math.sqrt(dx * dx + dy * dy) || 1;
-            const nx = dx / len;
-            const ny = dy / len;
-
-            // Offset for text node boxes (approximate)
-            const nodeWidth = 60;
-            const nodeHeight = 20;
-            const startX = from.x + nx * nodeWidth * 0.5;
-            const startY = from.y + ny * nodeHeight * 0.5;
-            const endX = to.x - nx * nodeWidth * 0.5;
-            const endY = to.y - ny * nodeHeight * 0.5;
-
-            return (
-              <g key={idx} opacity={isDimmed ? 0.15 : 1}>
-                <line
-                  x1={startX}
-                  y1={startY}
-                  x2={endX}
-                  y2={endY}
-                  stroke={rt?.color || '#94A3B8'}
-                  strokeWidth={isConnected ? 3 : 2}
-                  markerEnd={`url(#arrow-${rel.type})`}
-                />
-                <text
-                  x={(startX + endX) / 2}
-                  y={(startY + endY) / 2 - 6}
-                  fill={rt?.color || '#71717A'}
-                  fontSize="10"
-                  fontWeight="500"
-                  textAnchor="middle"
-                  style={{ pointerEvents: 'none' }}
-                >
-                  {rt?.icon} {rt?.label}
-                </text>
-              </g>
-            );
-          })}
-
-          {/* Arrow markers for each relationship type */}
-          <defs>
-            {RELATIONSHIP_TYPES.map(rt => (
-              <marker
-                key={rt.key}
-                id={`arrow-${rt.key}`}
-                markerWidth="10"
-                markerHeight="7"
-                refX="20"
-                refY="3.5"
-                orient="auto"
+          return (
+            <g key={idx}>
+              <line
+                x1={startX}
+                y1={startY}
+                x2={endX}
+                y2={endY}
+                stroke={rt?.color || '#94A3B8'}
+                strokeWidth="2"
+                opacity={hoveredNode && (rel.fromTaskId === hoveredNode || rel.toTaskId === hoveredNode) ? 1 : 0.6}
+                markerEnd="url(#arrowhead)"
+              />
+              <text
+                x={(startX + endX) / 2}
+                y={(startY + endY) / 2 - 10}
+                fill={rt?.color || '#71717A'}
+                fontSize="11"
+                fontWeight="500"
+                textAnchor="middle"
+                opacity={hoveredNode && (rel.fromTaskId === hoveredNode || rel.toTaskId === hoveredNode) ? 1 : 0.7}
               >
-                <polygon points="0 0, 10 3.5, 0 7" fill={rt.color} />
-              </marker>
-            ))}
-          </defs>
+                {rt?.icon} {rt?.label}
+              </text>
+            </g>
+          );
+        })}
 
-          {/* Task nodes - text only, no circles */}
-          {tasks.map(task => {
-            const pos = currentPositions[task.id];
-            if (!pos) return null;
-            const isHovered = hoveredNode === task.id;
-            const isConnected = hoveredNode && connectedNodes.has(task.id);
-            const isDimmed = hoveredNode && !isHovered && !isConnected;
+        {/* Arrow marker definition */}
+        <defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="currentColor" />
+          </marker>
+        </defs>
 
-            // Truncate text
-            const maxLen = 20;
-            const displayText = task.content.length > maxLen
-              ? task.content.substring(0, maxLen) + '...'
-              : task.content;
+        {/* Draw task nodes */}
+        {tasks.map(task => {
+          const pos = nodePositions[task.id];
+          const isHovered = hoveredNode === task.id;
 
-            return (
-              <g
-                key={task.id}
-                style={{ cursor: 'pointer' }}
-                onClick={() => onTaskClick(task.id)}
-                onMouseEnter={() => setHoveredNode(task.id)}
-                onMouseLeave={() => setHoveredNode(null)}
-                onMouseDown={(e) => {
-                  e.stopPropagation();
-                  setDraggedNode(task.id);
-                }}
-                opacity={isDimmed ? 0.25 : 1}
-                transform={`translate(${pos.x}, ${pos.y})`}
+          return (
+            <g
+              key={task.id}
+              style={{ cursor: 'pointer' }}
+              onClick={() => onTaskClick(task.id)}
+              onMouseEnter={() => setHoveredNode(task.id)}
+              onMouseLeave={() => setHoveredNode(null)}
+            >
+              <circle
+                cx={pos.x}
+                cy={pos.y}
+                r={isHovered ? 35 : 28}
+                fill={isHovered ? '#6366F1' : 'white'}
+                stroke="#6366F1"
+                strokeWidth="2"
+              />
+              <text
+                x={pos.x}
+                y={pos.y}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fill={isHovered ? 'white' : '#18181B'}
+                fontSize="10"
+                fontWeight="500"
               >
-                {/* Background highlight on hover */}
-                {isHovered && (
-                  <rect
-                    x={-70}
-                    y={-14}
-                    width={140}
-                    height={28}
-                    rx={6}
-                    fill="#6366F1"
-                    opacity="0.1"
-                  />
-                )}
-                {/* Task text */}
-                <text
-                  textAnchor="middle"
-                  dominantBaseline="middle"
-                  fill={isHovered ? '#6366F1' : '#18181B'}
-                  fontSize="12"
-                  fontWeight={isHovered ? '600' : '500'}
-                  style={{ pointerEvents: 'none' }}
-                >
-                  {displayText}
-                </text>
-              </g>
-            );
-          })}
-        </svg>
-      </div>
-
-      <div style={{ display: 'flex', gap: 12, marginTop: 12, flexWrap: 'wrap' }}>
-        {RELATIONSHIP_TYPES.map(rt => (
-          <span key={rt.key} style={{ fontSize: 11, color: rt.color, display: 'flex', alignItems: 'center', gap: 4 }}>
-            {rt.icon} {rt.label}
-          </span>
-        ))}
-        <span style={{ fontSize: 11, color: '#A1A1AA' }}>· Scroll to zoom · Drag to pan · Drag node to move</span>
-      </div>
+                {task.content.substring(0, 12)}…
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+      <p style={styles.graphHint}>Click on a node to focus on that task</p>
     </div>
   );
 }
@@ -4307,11 +3861,9 @@ const styles = {
   
   // Graph styles
   graphContainer: { backgroundColor: '#F9FAFB', borderRadius: 12, padding: 20, marginTop: 16 },
-  graphTitle: { fontSize: 14, fontWeight: 600, color: '#18181B', margin: 0 },
+  graphTitle: { fontSize: 14, fontWeight: 600, color: '#18181B', marginBottom: 16 },
   graphSvg: { display: 'block', margin: '0 auto', backgroundColor: 'white', borderRadius: 8, border: '1px solid #E4E4E7' },
-  graphSvgWrapper: { height: 400, borderRadius: 8, overflow: 'hidden', backgroundColor: 'white', border: '1px solid #E4E4E7' },
   graphHint: { fontSize: 12, color: '#71717A', textAlign: 'center', marginTop: 12 },
-  zoomBtn: { backgroundColor: '#F3F4F6', border: '1px solid #E5E7EB', borderRadius: 6, fontSize: 14, color: '#374151', cursor: 'pointer', fontWeight: 500 },
   
   // Review Mode Styles
   completedTasksList: { display: 'flex', flexDirection: 'column', gap: 12 },

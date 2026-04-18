@@ -22,6 +22,8 @@ const STORAGE_KEYS = {
   POOLS:    'ot2_pools',
   PODS:     'ot2_pods',
   POD_LOGS: 'ot2_pod_logs',
+  RECURRENCE_LOGS: 'ot2_recurrence_logs',
+  MIGRATION_VERSION: 'ot2_migration_version',
   SEEDED:   'ot2_stress_seeded',
 };
 
@@ -117,11 +119,15 @@ const FALLBACK_QUESTIONS = [
 ];
 
 const RELATIONSHIP_TYPES = [
-  { key: 'precede', label: 'Precedes', desc: 'This task comes before', color: '#6366F1', icon: '→' },
-  { key: 'follow', label: 'Follows', desc: 'This task comes after', color: '#0EA5E9', icon: '←' },
-  { key: 'schedule', label: 'Scheduled With', desc: 'Same sprint / period', color: '#10B981', icon: '⇔' },
-  { key: 'accomplish', label: 'Accomplishes With', desc: 'Together meet a goal', color: '#F59E0B', icon: '⊕' },
+  { key: 'blocks', label: 'Blocks', desc: 'Needs this done first', color: '#6366F1', icon: '⏸️' },
+  { key: 'pairs_with', label: 'Pairs With', desc: 'Do these around the same time', color: '#10B981', icon: '👥' },
+  { key: 'helps_reach', label: 'Helps Reach', desc: 'Both needed for this goal', color: '#F59E0B', icon: '🎯' },
 ];
+
+const migrateRelationshipType = (oldType) => {
+  const mapping = { 'precede': 'blocks', 'follow': 'blocks', 'schedule': 'pairs_with', 'accomplish': 'helps_reach' };
+  return mapping[oldType] || oldType;
+};
 
 const POD_TYPES = [
   { key: 'annual_dates', label: '📅 Annual Dates', desc: 'Each task gets its own specific date in the year' },
@@ -130,26 +136,158 @@ const POD_TYPES = [
 
 const RECURRENCE_TYPES = [
   { key: 'daily', label: 'Daily', desc: 'Every single day' },
-  { key: 'specific_days', label: 'Specific days of week', desc: 'Choose which days' },
-  { key: 'every_n_days', label: 'Every N days', desc: 'e.g. Every 3 days' },
-  { key: 'monthly_frequency', label: 'X times per month', desc: 'e.g. 3 times a month' },
+  { key: 'specific_days', label: 'Specific days of week', desc: 'Choose which days, e.g. Mon · Wed · Fri' },
+  { key: 'every_n', label: 'Every N', desc: 'Every N days or weeks' },
+  { key: 'monthly_frequency', label: 'X times per month', desc: 'Flexible monthly quota' },
+  { key: 'annual', label: 'Annual (month & day)', desc: 'Birthdays, anniversaries (year ignored)' },
 ];
 
 const WEEK_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const WEEK_DAYS_SHORT = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
-const podSummaryLine = (pod) => {
-  if (pod.podType === 'annual_dates') return '📅 Annual date per task';
-  const r = pod.recurrence || {};
-  const trackers = (pod.trackerFields || []).filter(f => f.name).map(f => f.name).join(', ');
+const migrateRecurrence = (oldRecurrence, oldTrackerLabel) => {
+  const newRecurrence = { ...oldRecurrence };
+  if (oldTrackerLabel && !newRecurrence.trackers) {
+    newRecurrence.trackers = [{ id: 't1', label: oldTrackerLabel.slice(0, 2), valueType: 'text' }];
+  }
+  if (newRecurrence.type === 'every_n_days') { newRecurrence.type = 'every_n'; newRecurrence.unit = 'days'; }
+  if (newRecurrence.type === 'every_n_weeks') { newRecurrence.type = 'every_n'; newRecurrence.unit = 'weeks'; }
+  if (!newRecurrence.startDate && newRecurrence.type === 'every_n') { newRecurrence.startDate = todayStr(); }
+  if (newRecurrence.type === 'every_n' && !newRecurrence.unit) { newRecurrence.unit = 'days'; }
+  return newRecurrence;
+};
+
+const recurrenceSummaryLine = (task) => {
+  const r = task?.recurrence || {};
+  const trackers = r.trackers?.map(t => t.label).join('·') || (task?.recurrenceTrackerLabel || '').trim();
   const trackerPart = trackers ? ` · Tracks: ${trackers}` : '';
-  if (r.type === 'daily') return `🔁 Every day${trackerPart}`;
-  if (r.type === 'specific_days') return `📅 ${(r.weekDays || []).sort().map(d => WEEK_DAYS[d]).join(', ')}${trackerPart}`;
+  if (r.type === 'daily') return `🔁 Daily${trackerPart}`;
+  if (r.type === 'specific_days') {
+    const days = (r.weekDays || []).sort().map(d => WEEK_DAYS[d]).join('–');
+    return `📅 ${days || 'No days selected'}${trackerPart}`;
+  }
+  if (r.type === 'every_n') {
+    const unitLabel = r.unit === 'weeks' ? 'weeks' : 'days';
+    return `🔁 Every ${r.everyN || '?'} ${unitLabel} from ${r.startDate || '?'}${trackerPart}`;
+  }
+  if (r.type === 'monthly_frequency') return `🔁 ${r.frequency || '?'}×/month${trackerPart}`;
+  if (r.type === 'annual') return `🎂 ${r.annualMonthDay || '?'} yearly${trackerPart}`;
   if (r.type === 'every_n_days') return `🔁 Every ${r.everyNDays || '?'} days${trackerPart}`;
-  if (r.type === 'monthly_frequency') return `🗓 ${r.frequency || '?'}× per month${trackerPart}`;
   return '—';
 };
 
+const AICoachingService = {
+  EDGE_FUNCTION_URL: '',
+  analyzeTaskContent(content) {
+    const lower = content.toLowerCase();
+    const deadlinePatterns = {
+      today: /\b(today|tonight|this morning|this afternoon|this evening|eod|end of day)\b/i,
+      tomorrow: /\b(tomorrow|tmr)\b/i,
+      thisWeek: /\b(this week|by friday|end of week)\b/i,
+      urgent: /\b(urgent|asap|immediately|right away|now)\b/i,
+      future: /\b(next week|next month|later|eventually|someday|no rush)\b/i,
+      specific: /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|\d{1,2}\/\d{1,2})\b/i,
+    };
+    const outcomePatterns = {
+      action: /\b(complete|finish|deliver|submit|send|create|build|write|prepare|draft|review|update|fix|resolve)\b/i,
+      result: /\b(report|document|email|presentation|proposal|code|design|plan|list|summary)\b/i,
+    };
+    const importancePatterns = {
+      high: /\b(important|critical|priority|must|essential|key|vital|crucial)\b/i,
+      stakeholder: /\b(boss|client|customer|team|manager|meeting|deadline)\b/i,
+      consequence: /\b(need|required|mandatory|blocking|waiting)\b/i,
+    };
+    const complexityPatterns = {
+      high: /\b(complex|difficult|challenging|major|extensive|comprehensive|deep dive|research|analyze)\b/i,
+      medium: /\b(review|update|prepare|organize|plan|coordinate)\b/i,
+      low: /\b(quick|simple|easy|minor|small|brief|short|just)\b/i,
+    };
+    const hasDeadline = Object.values(deadlinePatterns).some(p => p.test(lower));
+    const hasOutcome = Object.values(outcomePatterns).some(p => p.test(lower));
+    const hasImportance = Object.values(importancePatterns).some(p => p.test(lower));
+    const hasComplexity = Object.values(complexityPatterns).some(p => p.test(lower));
+    let suggestedDeadline = 'notplanned';
+    if (deadlinePatterns.today.test(lower) || deadlinePatterns.urgent.test(lower)) suggestedDeadline = 'today';
+    else if (deadlinePatterns.tomorrow.test(lower) || deadlinePatterns.thisWeek.test(lower) || deadlinePatterns.specific.test(lower)) suggestedDeadline = 'future';
+    else if (deadlinePatterns.future.test(lower)) suggestedDeadline = 'future';
+    let suggestedEnergy = 'medium';
+    if (complexityPatterns.high.test(lower)) suggestedEnergy = 'high';
+    else if (complexityPatterns.low.test(lower)) suggestedEnergy = 'low';
+    let suggestedPriority = 'schedule';
+    const isUrgent = deadlinePatterns.today.test(lower) || deadlinePatterns.urgent.test(lower);
+    const isImportant = importancePatterns.high.test(lower) || importancePatterns.stakeholder.test(lower);
+    if (isUrgent && isImportant) suggestedPriority = 'do_first';
+    else if (isUrgent && !isImportant) suggestedPriority = 'delegate';
+    else if (!isUrgent && isImportant) suggestedPriority = 'schedule';
+    else suggestedPriority = 'eliminate';
+    return { hasDeadline, hasOutcome, hasImportance, hasComplexity, suggestedDeadline, suggestedEnergy, suggestedPriority };
+  },
+  generateQuestions(taskContent, existingReflections = {}) {
+    const analysis = this.analyzeTaskContent(taskContent);
+    const questions = [];
+    const questionBank = {
+      deadline: [
+        { q: "When do you envision this being complete?", p: "Consider what feels realistic..." },
+        { q: "What's driving the timeline for this?", p: "Is there an external deadline or is this self-imposed?" },
+      ],
+      outcome: [
+        { q: "What will you have when this is done?", p: "Describe the tangible result..." },
+        { q: "How will you know this task is truly complete?", p: "What does 'done' look like?" },
+      ],
+      motivation: [
+        { q: "Why does completing this matter to you?", p: "Connect with your deeper reason..." },
+        { q: "What becomes possible once this is done?", p: "Think about what this unlocks..." },
+      ],
+      complexity: [
+        { q: "What's the hardest part of this task?", p: "Identify the core challenge..." },
+        { q: "Can this be broken into smaller pieces?", p: "Think about the first small step..." },
+      ],
+      urgency: [
+        { q: "What happens if this waits until next week?", p: "Consider the real consequences..." },
+        { q: "Is this urgent, or does it just feel urgent?", p: "Distinguish between the two..." },
+      ],
+    };
+    const pick = (cat) => { const opts = questionBank[cat]; return opts[Math.floor(Math.random() * opts.length)]; };
+    if (!analysis.hasDeadline && !existingReflections.deadline) {
+      const q = pick('deadline');
+      questions.push({ key: 'deadline', question: q.q, placeholder: q.p, purpose: 'kanban', required: true });
+    }
+    if (!analysis.hasOutcome && !existingReflections.outcome && questions.length < 5) {
+      const q = pick('outcome');
+      questions.push({ key: 'outcome', question: q.q, placeholder: q.p, purpose: 'energy', required: true });
+    }
+    if (!analysis.hasImportance && !existingReflections.motivation && questions.length < 5) {
+      const q = pick('motivation');
+      questions.push({ key: 'motivation', question: q.q, placeholder: q.p, purpose: 'quadrant', required: false });
+    }
+    if (!analysis.hasComplexity && questions.length < 4 && questions.length > 0) {
+      const q = pick('complexity');
+      questions.push({ key: 'complexity', question: q.q, placeholder: q.p, purpose: 'energy', required: false });
+    }
+    if (questions.length === 0) {
+      questions.push({ key: 'reflection', question: "What would completing this task mean for you?", placeholder: "Take a moment to connect with your intention...", purpose: 'all', required: true });
+    }
+    return { questions: questions.slice(0, 5), analysis: { ...analysis, taskWellDefined: analysis.hasDeadline && analysis.hasOutcome && analysis.hasImportance } };
+  },
+  async getCoachingQuestions(taskContent, existingReflections = {}) {
+    if (this.EDGE_FUNCTION_URL) {
+      try {
+        const response = await fetch(this.EDGE_FUNCTION_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskContent, existingReflections }) });
+        if (response.ok) return await response.json();
+      } catch (error) { console.warn('AI coaching fallback:', error); }
+    }
+    return this.generateQuestions(taskContent, existingReflections);
+  },
+  async askQuestion(prompt) {
+    if (this.EDGE_FUNCTION_URL) {
+      try {
+        const response = await fetch(this.EDGE_FUNCTION_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt }) });
+        if (response.ok) { const data = await response.json(); return data.answer || data.response || ''; }
+      } catch (error) { console.warn('AI ask fallback:', error); }
+    }
+    return '';
+  },
+};
 
 // ============================================================================
 // 🌱 DATA SEEDER
@@ -249,7 +387,7 @@ function generateSeedData() {
     const template = BLINK_TASKS[i % BLINK_TASKS.length];
     tasks.push({
       id: `wave_freedom_${i}`, content: i < BLINK_TASKS.length ? template : `${template} — variant ${Math.ceil(i / BLINK_TASKS.length)}`,
-      createdAt: now - i * 3600000, isCompleted: false, reflection: null, type: 'wave', poolIds: [], podId: null,
+      createdAt: now - i * 3600000, isCompleted: false, reflection: null, type: 'wave', poolIds: [],
     });
   }
 
@@ -259,7 +397,7 @@ function generateSeedData() {
       id: `wave_work_${i}`, content: `${BLINK_TASKS[i % BLINK_TASKS.length]} [B${i + 1}]`,
       createdAt: now - i * 7200000, isCompleted: false,
       reflection: { deadline: DEADLINES[i % DEADLINES.length], outcome: OUTCOMES[i % OUTCOMES.length], motivation: MOTIVATIONS[i % MOTIVATIONS.length], complexity: i % 3 === 0 ? 'high complexity' : i % 3 === 1 ? 'medium' : 'low' },
-      type: 'wave', poolIds: [], podId: null,
+      type: 'wave', poolIds: [],
     });
   }
 
@@ -276,29 +414,40 @@ function generateSeedData() {
         .replace('{area}', features[(p + t) % features.length]).replace('{team}', teams[p % teams.length]).replace('{deliverable}', `milestone ${t + 1}`);
 
       const taskId = `pool_task_${p}_${t}`;
+      const isRecurring = p % 5 === 0 && t > 2; // some pool tasks have recurrence
       tasks.push({
         id: taskId, content: `[${POOL_NAMES[p].split(':')[0].trim()}] ${template}`,
         createdAt: now - (p * 10 + t) * 3600000, isCompleted: false,
         reflection: { deadline: DEADLINES[(p + t) % DEADLINES.length], outcome: OUTCOMES[(p + t) % OUTCOMES.length], motivation: MOTIVATIONS[t % MOTIVATIONS.length] },
-        type: 'pool', poolIds: [`pool_${p}`], podId: null,
+        type: 'pool', poolIds: [`pool_${p}`],
+        recurrenceEnabled: isRecurring,
+        recurrence: isRecurring ? { type: ['daily', 'specific_days', 'every_n'][t % 3], weekDays: [0, 2, 4], everyN: 3, unit: 'days', startDate: todayStr(), frequency: 3, annualMonthDay: '', trackers: [] } : null,
+        recurrenceTrackerLabel: isRecurring ? 'Progress' : '',
       });
 
       if (t > 0) {
-        pools[p].relationships.push({ fromTaskId: taskId, toTaskId: `pool_task_${p}_${t - 1}`, type: ['precede', 'follow', 'schedule', 'accomplish'][t % 4] });
+        pools[p].relationships.push({ fromTaskId: taskId, toTaskId: `pool_task_${p}_${t - 1}`, type: ['blocks', 'pairs_with', 'helps_reach'][t % 3] });
       }
     }
   }
 
-  // 10 pods × 20 tasks = 200 pod tasks
+  // 10 pods × 20 tasks = 200 recurring pool tasks (converted from pod tasks)
   const annualDates = ['03-22','06-15','08-10','01-05','11-30','02-14','05-01','07-04','09-20','12-25','04-17','10-08'];
   for (let p = 0; p < 10; p++) {
     const pod = pods[p];
     const podTaskNames = POD_TASK_NAMES[p] || POD_TASK_NAMES[0];
+    const isAnnual = pod.podType === 'annual_dates';
     for (let t = 0; t < 20; t++) {
       const name = t < podTaskNames.length ? podTaskNames[t] : `${podTaskNames[t % podTaskNames.length]} (variation ${Math.floor(t / podTaskNames.length) + 1})`;
+      const recType = isAnnual ? 'annual' : (pod.recurrence?.type || 'daily');
       tasks.push({
         id: `pod_task_${p}_${t}`, content: name, createdAt: now - (p * 20 + t) * 7200000, isCompleted: false, reflection: null,
-        type: 'pod', poolIds: [], podId: pod.id, podTaskDate: pod.podType === 'annual_dates' ? annualDates[(p * 20 + t) % annualDates.length] : null,
+        type: 'pool', poolIds: [],
+        recurrenceEnabled: true,
+        recurrence: isAnnual
+          ? { type: 'annual', annualMonthDay: annualDates[(p * 20 + t) % annualDates.length], trackers: [] }
+          : migrateRecurrence(pod.recurrence || { type: 'daily' }, ''),
+        recurrenceTrackerLabel: (pod.trackerFields || []).filter(f => f.name).map(f => f.name).join(', ') || '',
       });
     }
   }
@@ -312,7 +461,7 @@ function generateSeedData() {
       id: taskId, content: `${BLINK_TASKS[i % BLINK_TASKS.length]} [done-${i + 1}]`,
       createdAt: now - i * 90000000, isCompleted: true, completedAt,
       reflection: { deadline: DEADLINES[i % DEADLINES.length], outcome: OUTCOMES[i % OUTCOMES.length], motivation: MOTIVATIONS[i % MOTIVATIONS.length] },
-      type: ['wave', 'wave', 'pool', 'wave', 'pool'][i % 5], poolIds: i % 5 === 2 || i % 5 === 4 ? [`pool_${i % 20}`] : [], podId: null,
+      type: ['wave', 'wave', 'pool', 'wave', 'pool'][i % 5], poolIds: i % 5 === 2 || i % 5 === 4 ? [`pool_${i % 20}`] : [],
     });
     reviews.push({
       taskId, date: completedAt.slice(0, 10), satisfactionRating: (i % 5) + 1, improvements: REVIEW_COMMENTS[i % REVIEW_COMMENTS.length],
@@ -356,6 +505,17 @@ const Icons = {
   Lightbulb: ({ className = "w-8 h-8" }) => (<svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>),
   RotateCcw: ({ className = "w-4 h-4" }) => (<svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>),
   Network: ({ className = "w-4 h-4" }) => (<svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="6" rx="1"/><rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><path d="M12 8v4m0 0-5 4m5-4 5 4"/></svg>),
+  Coffee: ({ className = "w-4 h-4" }) => (<svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 8h1a4 4 0 1 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"/><line x1="6" y1="2" x2="6" y2="4"/><line x1="10" y1="2" x2="10" y2="4"/><line x1="14" y1="2" x2="14" y2="4"/></svg>),
+  Clock: ({ className = "w-4 h-4" }) => (<svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>),
+  Calendar: ({ className = "w-4 h-4" }) => (<svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>),
+  Mail: ({ className = "w-4 h-4" }) => (<svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>),
+  Lock: ({ className = "w-4 h-4" }) => (<svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>),
+  User: ({ className = "w-4 h-4" }) => (<svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>),
+  Feather: ({ className = "w-4 h-4" }) => (<svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"/><line x1="16" y1="8" x2="2" y2="22"/><line x1="17.5" y1="15" x2="9" y2="15"/></svg>),
+  Zap: ({ className = "w-8 h-8" }) => (<svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>),
+  GitBranch: ({ className = "w-4 h-4" }) => (<svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>),
+  TaskGraph: ({ className = "w-4 h-4" }) => (<svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="5" cy="12" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="19" cy="19" r="2"/><circle cx="12" cy="12" r="2"/><line x1="7" y1="12" x2="10" y2="12"/><line x1="14" y1="12" x2="17.3" y2="6.7"/><line x1="14" y1="12" x2="17.3" y2="17.3"/></svg>),
+  Ripple: ({ className = "w-4 h-4" }) => (<svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="2"/><path d="M6.3 6.3a8 8 0 0 0 0 11.4"/><path d="M17.7 6.3a8 8 0 0 1 0 11.4"/><path d="M3.5 3.5a13.5 13.5 0 0 0 0 17"/><path d="M20.5 3.5a13.5 13.5 0 0 1 0 17"/></svg>),
 };
 
 
@@ -371,19 +531,24 @@ export default function OT2StressTestApp() {
   const [timers, setTimers] = useState({});
   const [reviews, setReviews] = useState([]);
   const [pools, setPools] = useState([]);
-  const [pods, setPods] = useState([]);
-  const [podLogs, setPodLogs] = useState({});
+  const [pods, setPods] = useState([]); // legacy structure retained for migration/back-compat
+  const [podLogs, setPodLogs] = useState({}); // legacy structure retained for migration/back-compat
+  const [recurrenceLogs, setRecurrenceLogs] = useState({});
 
   // Focus mode state
-  const [focusedTask, setFocusedTask] = useState(null);
+  const [focusedTaskId, setFocusedTaskId] = useState(null);
   const [wizardStep, setWizardStep] = useState(0);
   const [wizardAnswers, setWizardAnswers] = useState({});
   const [focusTaskType, setFocusTaskType] = useState('wave');
   const [focusPoolId, setFocusPoolId] = useState(null);
-  const [focusPodId, setFocusPodId] = useState(null);
   const [focusRelationships, setFocusRelationships] = useState([]);
-  const [focusPodTaskDate, setFocusPodTaskDate] = useState(null);
   const [focusTypeConfirmed, setFocusTypeConfirmed] = useState(false);
+  const [focusRecurringEnabled, setFocusRecurringEnabled] = useState(false);
+  const [focusRecurrence, setFocusRecurrence] = useState({
+    type: 'daily', startDate: todayStr(), everyN: 1, unit: 'days',
+    weekDays: [0, 1, 2, 3, 4], frequency: 3, annualMonthDay: '', trackers: []
+  });
+  const [focusTrackerLabel, setFocusTrackerLabel] = useState('');
 
   // Review state
   const [reviewTaskId, setReviewTaskId] = useState(null);
@@ -400,18 +565,76 @@ export default function OT2StressTestApp() {
       localStorage.setItem(STORAGE_KEYS.POOLS, JSON.stringify(data.pools));
       localStorage.setItem(STORAGE_KEYS.PODS, JSON.stringify(data.pods));
       localStorage.setItem(STORAGE_KEYS.REVIEWS, JSON.stringify(data.reviews));
+      localStorage.setItem(STORAGE_KEYS.RECURRENCE_LOGS, JSON.stringify({}));
       localStorage.setItem(STORAGE_KEYS.SEEDED, 'true');
       setTasks(data.tasks);
       setPools(data.pools);
       setPods(data.pods);
       setReviews(data.reviews);
+      setRecurrenceLogs({});
     } else {
       setTasks(JSON.parse(localStorage.getItem(STORAGE_KEYS.TASKS) || '[]'));
       setPools(JSON.parse(localStorage.getItem(STORAGE_KEYS.POOLS) || '[]'));
       setPods(JSON.parse(localStorage.getItem(STORAGE_KEYS.PODS) || '[]'));
       setReviews(JSON.parse(localStorage.getItem(STORAGE_KEYS.REVIEWS) || '[]'));
+      setRecurrenceLogs(JSON.parse(localStorage.getItem(STORAGE_KEYS.RECURRENCE_LOGS) || '{}'));
     }
     debugMark('seeding done');
+  }, []);
+
+  // One-time migration: legacy pod data → Task Graph recurring tasks
+  useEffect(() => {
+    const migVersion = localStorage.getItem(STORAGE_KEYS.MIGRATION_VERSION);
+    if (migVersion === '2') return; // already migrated
+    debugMark('migration start');
+    setTasks(prev => {
+      let changed = false;
+      const next = prev.map(t => {
+        // Migrate old relationship types in pool relationships
+        if (t.poolIds?.length && t.type === 'pool') {
+          // nothing to change on task itself
+        }
+        // Migrate pod tasks → pool tasks with recurrence
+        if (t.type === 'pod' && t.podId) {
+          changed = true;
+          const pod = pods.find(p => p.id === t.podId);
+          return {
+            ...t,
+            type: 'pool',
+            poolIds: [], // pod tasks become wave tasks with recurrence
+            podId: null,
+            recurrenceEnabled: true,
+            recurrence: pod ? migrateRecurrence(pod.recurrence || {}, '') : { type: 'daily' },
+            recurrenceTrackerLabel: '',
+          };
+        }
+        // Migrate old recurrence types
+        if (t.recurrence?.type === 'every_n_days') {
+          changed = true;
+          return { ...t, recurrence: migrateRecurrence(t.recurrence, t.recurrenceTrackerLabel) };
+        }
+        return t;
+      });
+      if (changed) localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(next));
+      return changed ? next : prev;
+    });
+    // Migrate pool relationship types
+    setPools(prev => {
+      let changed = false;
+      const next = prev.map(p => {
+        if (!p.relationships?.length) return p;
+        const newRels = p.relationships.map(r => {
+          const newType = migrateRelationshipType(r.type);
+          if (newType !== r.type) { changed = true; return { ...r, type: newType }; }
+          return r;
+        });
+        return changed ? { ...p, relationships: newRels } : p;
+      });
+      if (changed) localStorage.setItem(STORAGE_KEYS.POOLS, JSON.stringify(next));
+      return changed ? next : prev;
+    });
+    localStorage.setItem(STORAGE_KEYS.MIGRATION_VERSION, '2');
+    debugMark('migration done');
   }, []);
 
   // Derived lists
@@ -424,13 +647,18 @@ export default function OT2StressTestApp() {
   useEffect(() => { if (tasks.length) localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(tasks)); }, [tasks]);
   useEffect(() => { if (pools.length) localStorage.setItem(STORAGE_KEYS.POOLS, JSON.stringify(pools)); }, [pools]);
   useEffect(() => { if (pods.length) localStorage.setItem(STORAGE_KEYS.PODS, JSON.stringify(pods)); }, [pods]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEYS.RECURRENCE_LOGS, JSON.stringify(recurrenceLogs)); }, [recurrenceLogs]);
   useEffect(() => { if (reviews.length) localStorage.setItem(STORAGE_KEYS.REVIEWS, JSON.stringify(reviews)); }, [reviews]);
 
   // Task operations
   const addTask = () => {
     if (!newTask.trim()) return;
-    setTasks(prev => [{ id: uid(), content: newTask.trim(), createdAt: Date.now(), isCompleted: false, reflection: null, type: 'wave', poolIds: [], podId: null }, ...prev]);
+    setTasks(prev => [{ id: uid(), content: newTask.trim(), createdAt: Date.now(), isCompleted: false, reflection: null, type: 'wave', poolIds: [] }, ...prev]);
     setNewTask('');
+  };
+
+  const updateTaskContent = (taskId, newContent) => {
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, content: newContent } : t));
   };
 
   const deleteTask = (id) => setTasks(prev => prev.filter(t => t.id !== id));
@@ -446,48 +674,61 @@ export default function OT2StressTestApp() {
     setTasks(prev => prev.map(t => t.id === id ? { ...t, isCompleted: false, completedAt: null } : t));
   };
 
+  // Derived: focused task object from ID
+  const focusedTask = focusedTaskId ? tasks.find(t => t.id === focusedTaskId) : null;
+
   // Focus mode
   const startFocus = (taskId) => {
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
-    setFocusedTask(task);
+    setFocusedTaskId(taskId);
     setWizardStep(0);
     setWizardAnswers(task.reflection || {});
     setFocusTaskType(task.type || 'wave');
     setFocusPoolId(task.poolIds?.[0] || null);
-    setFocusPodId(task.podId || null);
     setFocusRelationships([]);
-    setFocusPodTaskDate(task.podTaskDate || null);
     setFocusTypeConfirmed(!!task.type && task.type !== 'wave');
+    setFocusRecurringEnabled(task.recurrenceEnabled || false);
+    setFocusRecurrence(task.recurrence || { type: 'daily', startDate: todayStr(), everyN: 1, unit: 'days', weekDays: [0, 1, 2, 3, 4], frequency: 3, annualMonthDay: '', trackers: [] });
+    setFocusTrackerLabel(task.recurrenceTrackerLabel || '');
     setGuestMode('focus');
   };
 
   const confirmFocusType = () => setFocusTypeConfirmed(true);
 
   const finishFocus = () => {
-    if (!focusedTask) return;
-    setTasks(prev => prev.map(t => t.id === focusedTask.id ? {
+    if (!focusedTaskId) return;
+    const taskId = focusedTaskId;
+    setTasks(prev => prev.map(t => t.id === taskId ? {
       ...t, reflection: { ...t.reflection, ...wizardAnswers },
       type: focusTaskType,
       poolIds: focusTaskType === 'pool' && focusPoolId ? [focusPoolId] : [],
-      podId: focusTaskType === 'pod' && focusPodId ? focusPodId : null,
-      podTaskDate: focusPodTaskDate,
+      recurrenceEnabled: focusTaskType === 'pool' && focusRecurringEnabled,
+      recurrence: focusTaskType === 'pool' && focusRecurringEnabled ? focusRecurrence : null,
+      recurrenceTrackerLabel: focusTaskType === 'pool' && focusRecurringEnabled ? focusTrackerLabel : '',
     } : t));
     // Add relationships to pool
     if (focusTaskType === 'pool' && focusPoolId && focusRelationships.length > 0) {
       setPools(prev => prev.map(p => p.id === focusPoolId ? {
-        ...p, relationships: [...(p.relationships || []), ...focusRelationships.map(r => ({ ...r, fromTaskId: focusedTask.id }))]
+        ...p, relationships: [...(p.relationships || []), ...focusRelationships.map(r => ({ ...r, fromTaskId: taskId }))]
       } : p));
     }
-    setFocusedTask(null);
+    setFocusedTaskId(null);
     setGuestMode('work');
   };
 
   const skipTask = () => {
-    const idx = freedomTasks.findIndex(t => t.id === focusedTask?.id);
+    const idx = freedomTasks.findIndex(t => t.id === focusedTaskId);
     const next = freedomTasks[idx + 1] || freedomTasks[0];
     if (next) startFocus(next.id);
-    else { setFocusedTask(null); setGuestMode('freedom'); }
+    else { setFocusedTaskId(null); setGuestMode('freedom'); }
+  };
+
+  // Recurrence log helpers
+  const recurrenceLogKey = (taskId, date) => `${taskId}_${date}`;
+  const getRecurrenceLog = (taskId, date) => recurrenceLogs[recurrenceLogKey(taskId, date)] || { status: 'planned', trackerValues: {} };
+  const setRecurrenceLog = (taskId, date, data) => {
+    setRecurrenceLogs(prev => ({ ...prev, [recurrenceLogKey(taskId, date)]: { ...getRecurrenceLog(taskId, date), ...data } }));
   };
 
   // Pool/Pod creation
@@ -606,6 +847,7 @@ export default function OT2StressTestApp() {
               <FreedomMode
                 newTask={newTask} setNewTask={setNewTask} onAddTask={addTask}
                 pendingTasks={freedomTasks} allPendingCount={pendingTasks.length}
+                completedTasks={completedTasks}
                 onDeleteTask={deleteTask} onStartFocus={startFocus}
               />
             )}
@@ -617,12 +859,14 @@ export default function OT2StressTestApp() {
                 wizardAnswers={wizardAnswers} setWizardAnswers={setWizardAnswers}
                 focusTaskType={focusTaskType} setFocusTaskType={setFocusTaskType}
                 focusPoolId={focusPoolId} setFocusPoolId={setFocusPoolId}
-                focusPodId={focusPodId} setFocusPodId={setFocusPodId}
                 focusRelationships={focusRelationships} setFocusRelationships={setFocusRelationships}
-                focusPodTaskDate={focusPodTaskDate} setFocusPodTaskDate={setFocusPodTaskDate}
                 focusTypeConfirmed={focusTypeConfirmed} onConfirmType={confirmFocusType}
-                pools={pools} pods={pods} tasks={tasks}
-                onCreatePool={createPool} onCreatePod={createPod}
+                focusRecurringEnabled={focusRecurringEnabled} setFocusRecurringEnabled={setFocusRecurringEnabled}
+                focusRecurrence={focusRecurrence} setFocusRecurrence={setFocusRecurrence}
+                focusTrackerLabel={focusTrackerLabel} setFocusTrackerLabel={setFocusTrackerLabel}
+                pools={pools} tasks={tasks}
+                onCreatePool={createPool}
+                onUpdateTask={updateTaskContent}
                 onFinish={finishFocus} onSkipTask={skipTask}
               />
             )}
@@ -643,7 +887,8 @@ export default function OT2StressTestApp() {
                 improvements={improvements} setImprovements={setImprovements}
                 onSubmitReview={submitReview} onSkipReview={skipReview}
                 onGoToFreedom={() => setGuestMode('freedom')}
-                pools={pools} pods={pods}
+                pools={pools}
+                recurrenceLogs={recurrenceLogs} getRecurrenceLog={getRecurrenceLog} setRecurrenceLog={setRecurrenceLog}
               />
             )}
 
@@ -692,7 +937,7 @@ function EmptyState({ icon, message, action }) {
 // ============================================================================
 // FREEDOM MODE - Updated with Rich Text and Highlighted Focus Button
 // ============================================================================
-function FreedomMode({ newTask, setNewTask, onAddTask, pendingTasks, allPendingCount, onDeleteTask, onStartFocus }) {
+function FreedomMode({ newTask, setNewTask, onAddTask, pendingTasks, allPendingCount, completedTasks, onDeleteTask, onStartFocus }) {
   const { mark, display } = useDebugTimer('Freedom');
   const textareaRef = useRef(null);
   const qualifiedCount = (allPendingCount || 0) - pendingTasks.length;
@@ -760,6 +1005,8 @@ function FreedomMode({ newTask, setNewTask, onAddTask, pendingTasks, allPendingC
             {pendingTasks.slice(0, 50).map(task => (
               <div key={task.id} style={styles.taskItem}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
+                  {task.type !== 'wave' && task.poolIds?.length > 0 && <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, backgroundColor: '#6366F115', color: '#6366F1', fontWeight: 600 }}>⧉ Graph</span>}
+                  {task.recurrenceEnabled && <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, backgroundColor: '#0EA5E915', color: '#0EA5E9', fontWeight: 600 }}>〜 Recurring</span>}
                   <span style={styles.taskContent}>{task.content}</span>
                 </div>
                 <div style={styles.taskActions}>
@@ -782,7 +1029,7 @@ function FreedomMode({ newTask, setNewTask, onAddTask, pendingTasks, allPendingC
 // ============================================================================
 // POOL COMBOBOX - Updated with inline Create button
 // ============================================================================
-function PoolComboBox({ pools, onSelect, onCreatePool, selectedPoolId }) {
+function PoolComboBox({ pools, onSelect, onCreatePool, selectedPoolId, inputRef }) {
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -810,11 +1057,11 @@ function PoolComboBox({ pools, onSelect, onCreatePool, selectedPoolId }) {
       <div style={styles.comboInputRow}>
         <div style={{ ...styles.comboInput, flex: 1 }} onClick={() => setOpen(true)}>
           {open ? (
-            <input autoFocus type="text" placeholder="Search or type new pool name…" value={search} onChange={e => setSearch(e.target.value)} style={styles.comboSearchInput} onClick={e => e.stopPropagation()} />
+            <input ref={inputRef} autoFocus type="text" placeholder="Search or type new Task Graph name…" value={search} onChange={e => setSearch(e.target.value)} style={styles.comboSearchInput} onClick={e => e.stopPropagation()} />
           ) : selected ? (
-            <span style={{ color: '#18181B', fontWeight: 500 }}>⊕ {selected.name}</span>
+            <span style={{ color: '#18181B', fontWeight: 500 }}>⧉ {selected.name}</span>
           ) : (
-            <span style={{ color: '#A1A1AA' }}>Search or create a Pool…</span>
+            <span style={{ color: '#A1A1AA' }}>Search or create a Task Graph…</span>
           )}
           <Icons.ChevronDown className="w-4 h-4" style={{ flexShrink: 0 }} />
         </div>
@@ -824,10 +1071,10 @@ function PoolComboBox({ pools, onSelect, onCreatePool, selectedPoolId }) {
       </div>
       {open && (
         <div style={styles.comboDropdown}>
-          {filtered.length === 0 && !showCreateBtn && <div style={{ padding: 12, color: '#A1A1AA', fontSize: 13 }}>No pools found</div>}
+          {filtered.length === 0 && !showCreateBtn && <div style={{ padding: 12, color: '#A1A1AA', fontSize: 13 }}>No Task Graphs yet</div>}
           {filtered.map(p => (
             <div key={p.id} onClick={() => { onSelect(p.id); setOpen(false); setSearch(''); }} style={{ ...styles.comboOption, ...(p.id === selectedPoolId ? { backgroundColor: '#6366F110' } : {}) }}>
-              <span>⊕ {p.name}</span>
+              <span>⧉ {p.name}</span>
               {p.id === selectedPoolId && <Icons.Check className="w-4 h-4" style={{ color: '#6366F1' }} />}
             </div>
           ))}
@@ -838,84 +1085,140 @@ function PoolComboBox({ pools, onSelect, onCreatePool, selectedPoolId }) {
 }
 
 // ============================================================================
-// POD COMBOBOX - Updated with inline Create button
+// POOL RELATIONSHIP PANEL - Add relationships between tasks in a pool
 // ============================================================================
-function PodComboBox({ pods, onSelect, onCreatePod, selectedPodId }) {
-  const [search, setSearch] = useState('');
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+function PoolRelationshipPanel({ poolId, pools, tasks, relationships, setRelationships }) {
+  const pool = pools.find(p => p.id === poolId);
+  const poolTasks = tasks.filter(t => t.poolIds?.includes(poolId));
+  const [relType, setRelType] = useState(RELATIONSHIP_TYPES[0].key);
+  const [relTarget, setRelTarget] = useState('');
 
-  const filtered = pods.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
-  const selected = pods.find(p => p.id === selectedPodId);
-  const showCreateBtn = search.trim() && !filtered.some(p => p.name.toLowerCase() === search.toLowerCase());
+  if (!pool) return null;
 
-  const handleCreate = () => {
-    if (!search.trim()) return;
-    const pod = onCreatePod({ name: search.trim(), podType: 'annual_dates', recurrence: null, trackerFields: [] });
-    onSelect(pod.id);
-    setSearch('');
-    setOpen(false);
+  const handleAdd = () => {
+    if (!relTarget) return;
+    setRelationships(prev => [...prev, { toTaskId: relTarget, type: relType }]);
+    setRelTarget('');
   };
 
-  useEffect(() => {
-    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      <div style={styles.comboInputRow}>
-        <div style={{ ...styles.comboInput, flex: 1 }} onClick={() => setOpen(true)}>
-          {open ? (
-            <input autoFocus type="text" placeholder="Search or type new pod name…" value={search} onChange={e => setSearch(e.target.value)} style={styles.comboSearchInput} onClick={e => e.stopPropagation()} />
-          ) : selected ? (
-            <span style={{ color: '#18181B', fontWeight: 500 }}>↻ {selected.name}</span>
-          ) : (
-            <span style={{ color: '#A1A1AA' }}>Search or create a Pod…</span>
-          )}
-          <Icons.ChevronDown className="w-4 h-4" style={{ flexShrink: 0 }} />
-        </div>
-        {showCreateBtn && (
-          <button style={{ ...styles.inlineCreateBtn, backgroundColor: '#0EA5E9' }} onClick={handleCreate}><Icons.Plus className="w-4 h-4" /> Create</button>
-        )}
-      </div>
-      {open && (
-        <div style={styles.comboDropdown}>
-          {filtered.length === 0 && !showCreateBtn && <div style={{ padding: 12, color: '#A1A1AA', fontSize: 13 }}>No pods found</div>}
-          {filtered.map(p => (
-            <div key={p.id} onClick={() => { onSelect(p.id); setOpen(false); setSearch(''); }} style={{ ...styles.comboOption, ...(p.id === selectedPodId ? { backgroundColor: '#0EA5E910' } : {}) }}>
-              <div>
-                <span>↻ {p.name}</span>
-                <div style={{ fontSize: 11, color: '#71717A' }}>{podSummaryLine(p)}</div>
-              </div>
-              {p.id === selectedPodId && <Icons.Check className="w-4 h-4" style={{ color: '#0EA5E9' }} />}
-            </div>
-          ))}
+    <div style={{ marginTop: 12 }}>
+      <p style={{ fontSize: 13, fontWeight: 600, color: '#18181B', marginBottom: 6 }}>
+        <Icons.GitBranch className="w-3.5 h-3.5" style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />
+        Relationships in this Task Graph
+      </p>
+      <RelationshipListTable relationships={[...(pool.relationships || []), ...relationships]} tasks={tasks} />
+      {poolTasks.length > 1 && (
+        <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center' }}>
+          <select value={relType} onChange={e => setRelType(e.target.value)} style={{ ...styles.select, flex: '0 0 auto' }}>
+            {RELATIONSHIP_TYPES.map(rt => <option key={rt.key} value={rt.key}>{rt.icon} {rt.label}</option>)}
+          </select>
+          <select value={relTarget} onChange={e => setRelTarget(e.target.value)} style={{ ...styles.select, flex: 1 }}>
+            <option value="">Link to task…</option>
+            {poolTasks.map(t => <option key={t.id} value={t.id}>{t.content.slice(0, 40)}</option>)}
+          </select>
+          <button style={styles.ghostBtn} onClick={handleAdd} disabled={!relTarget}><Icons.Link className="w-3.5 h-3.5" /></button>
         </div>
       )}
     </div>
   );
 }
 
+// ============================================================================
+// RELATIONSHIP LIST TABLE - Display relationships in a compact table
+// ============================================================================
+function RelationshipListTable({ relationships, tasks }) {
+  if (!relationships?.length) return <p style={{ fontSize: 12, color: '#A1A1AA', fontStyle: 'italic' }}>No relationships yet</p>;
+  return (
+    <div style={{ fontSize: 12, maxHeight: 120, overflowY: 'auto' }}>
+      {relationships.map((r, i) => {
+        const rt = RELATIONSHIP_TYPES.find(t => t.key === r.type) || RELATIONSHIP_TYPES[0];
+        const toTask = tasks.find(t => t.id === r.toTaskId);
+        return (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', borderBottom: '1px solid #F4F4F5' }}>
+            <span style={{ color: rt.color, fontWeight: 600 }}>{rt.icon}</span>
+            <span style={{ color: '#71717A' }}>{rt.label}</span>
+            <span style={{ color: '#18181B', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{toTask?.content?.slice(0, 30) || r.toTaskId}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 // ============================================================================
-// FOCUS MODE - Simplified for stress test
+// DONE CARD - Shown after completing focus qualification
+// ============================================================================
+function DoneCard({ task, reflection, poolName, recurrenceLabel, onDone, onSkip }) {
+  return (
+    <div style={styles.wizardCard}>
+      <div style={{ textAlign: 'center', marginBottom: 16 }}>
+        <div style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: '#10B98115', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
+          <Icons.Check className="w-8 h-8" style={{ color: '#10B981' }} />
+        </div>
+        <h4 style={{ fontSize: 18, fontWeight: 700, color: '#18181B' }}>Task Qualified!</h4>
+        <p style={{ fontSize: 13, color: '#71717A', marginTop: 4 }}>Ready for your work session</p>
+      </div>
+      {/* Info strip */}
+      <div style={{ backgroundColor: '#F4F4F5', borderRadius: 8, padding: 10, marginBottom: 14, fontSize: 12 }}>
+        {poolName && <div style={{ marginBottom: 4 }}><span style={{ color: '#6366F1', fontWeight: 600 }}>⧉ {poolName}</span></div>}
+        {recurrenceLabel && <div style={{ marginBottom: 4 }}><span style={{ color: '#0EA5E9', fontWeight: 600 }}>〜 {recurrenceLabel}</span></div>}
+        {reflection?.deadline && <div><span style={{ color: '#71717A' }}>When:</span> {reflection.deadline}</div>}
+        {reflection?.outcome && <div><span style={{ color: '#71717A' }}>Outcome:</span> {reflection.outcome}</div>}
+        {reflection?.motivation && <div><span style={{ color: '#71717A' }}>Why:</span> {reflection.motivation}</div>}
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button style={styles.primaryBtn} onClick={onDone}>Done — Go to Work Mode</button>
+        <button style={styles.ghostBtn} onClick={onSkip}>Focus on Next Task</button>
+      </div>
+    </div>
+  );
+}
+
+
+// ============================================================================
+// FOCUS MODE - v3 parity with AI coaching, title editing, recurring in Task Graph
 // ============================================================================
 function FocusMode({
   task, pendingTasks, wizardStep, setWizardStep, wizardAnswers, setWizardAnswers,
-  focusTaskType, setFocusTaskType, focusPoolId, setFocusPoolId, focusPodId, setFocusPodId,
-  focusRelationships, setFocusRelationships, focusPodTaskDate, setFocusPodTaskDate,
-  focusTypeConfirmed, onConfirmType, pools, pods, tasks, onCreatePool, onCreatePod,
+  focusTaskType, setFocusTaskType, focusPoolId, setFocusPoolId,
+  focusRelationships, setFocusRelationships,
+  focusTypeConfirmed, onConfirmType,
+  focusRecurringEnabled, setFocusRecurringEnabled,
+  focusRecurrence, setFocusRecurrence,
+  focusTrackerLabel, setFocusTrackerLabel,
+  pools, tasks, onCreatePool, onUpdateTask,
   onFinish, onSkipTask,
 }) {
   const { mark, display } = useDebugTimer('Focus');
-  const [questions] = useState(FALLBACK_QUESTIONS);
+  const [coachingResult, setCoachingResult] = useState(null);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(task.content);
+  const poolInputRef = useRef(null);
 
   useEffect(() => { mark('rendered'); }, [wizardStep]);
 
+  // Generate AI coaching questions on mount
+  useEffect(() => {
+    if (focusTypeConfirmed && !coachingResult) {
+      const result = AICoachingService.generateQuestions(task.content, task.reflection || {});
+      setCoachingResult(result);
+    }
+  }, [focusTypeConfirmed]);
+
+  const questions = coachingResult?.questions || FALLBACK_QUESTIONS;
   const totalQuestions = questions.length;
   const currentQuestion = questions[wizardStep];
+
+  const saveTitle = () => {
+    if (titleDraft.trim() && titleDraft !== task.content && onUpdateTask) {
+      onUpdateTask(task.id, titleDraft.trim());
+    }
+    setEditingTitle(false);
+  };
+
+  const poolName = focusPoolId ? pools.find(p => p.id === focusPoolId)?.name : null;
+  const recurrenceLabel = focusRecurringEnabled ? recurrenceSummaryLine({ recurrence: focusRecurrence, recurrenceTrackerLabel: focusTrackerLabel }) : null;
 
   return (
     <div style={styles.focusMode}>
@@ -934,8 +1237,27 @@ function FocusMode({
 
       <div style={styles.focusHeader}>
         <p style={styles.focusLabel}>Currently focusing on:</p>
-        <h3 style={styles.focusTask}>{task.content}</h3>
+        {editingTitle ? (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <input value={titleDraft} onChange={e => setTitleDraft(e.target.value)} style={{ ...styles.textarea, minHeight: 36, padding: '6px 10px' }} autoFocus onKeyDown={e => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') setEditingTitle(false); }} />
+            <button style={styles.ghostBtn} onClick={saveTitle}><Icons.Check className="w-4 h-4" /></button>
+            <button style={styles.ghostBtn} onClick={() => setEditingTitle(false)}><Icons.X className="w-4 h-4" /></button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <h3 style={styles.focusTask}>{task.content}</h3>
+            <button style={{ ...styles.ghostBtn, padding: '2px 6px' }} onClick={() => { setTitleDraft(task.content); setEditingTitle(true); }} title="Edit title"><Icons.Edit className="w-3.5 h-3.5" /></button>
+          </div>
+        )}
       </div>
+
+      {/* Info strip */}
+      {focusTypeConfirmed && (poolName || recurrenceLabel) && (
+        <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+          {poolName && <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, backgroundColor: '#6366F115', color: '#6366F1', fontWeight: 600 }}>⧉ {poolName}</span>}
+          {recurrenceLabel && <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, backgroundColor: '#0EA5E915', color: '#0EA5E9', fontWeight: 600 }}>〜 {recurrenceLabel}</span>}
+        </div>
+      )}
 
       {!focusTypeConfirmed ? (
         <div style={styles.wizardCard}>
@@ -943,8 +1265,7 @@ function FocusMode({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
             {[
               { key: 'wave', label: '⚡ Wave', desc: 'Standalone note / quick task', color: '#10B981' },
-              { key: 'pool', label: '⊕ Pool', desc: 'Part of a group / project', color: '#6366F1' },
-              { key: 'pod', label: '↻ Pod', desc: 'Recurring habit / scheduled', color: '#0EA5E9' },
+              { key: 'pool', label: '⧉ Task Graph', desc: 'Part of a project with relationships & recurring', color: '#6366F1' },
             ].map(opt => (
               <label key={opt.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 10, border: `2px solid ${focusTaskType === opt.key ? opt.color : '#E4E4E7'}`, cursor: 'pointer', backgroundColor: focusTaskType === opt.key ? `${opt.color}10` : 'white' }}>
                 <input type="radio" name="taskType" value={opt.key} checked={focusTaskType === opt.key} onChange={() => setFocusTaskType(opt.key)} style={{ accentColor: opt.color }} />
@@ -958,19 +1279,63 @@ function FocusMode({
 
           {focusTaskType === 'pool' && (
             <div style={{ marginBottom: 16 }}>
-              <label style={styles.label}>Select or create a Pool</label>
-              <PoolComboBox pools={pools} onSelect={setFocusPoolId} onCreatePool={onCreatePool} selectedPoolId={focusPoolId} />
+              <label style={styles.label}>Select or create a Task Graph</label>
+              <PoolComboBox pools={pools} onSelect={setFocusPoolId} onCreatePool={onCreatePool} selectedPoolId={focusPoolId} inputRef={poolInputRef} />
+
+              {/* Recurring toggle inside Task Graph */}
+              <div style={{ marginTop: 10 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
+                  <input type="checkbox" checked={focusRecurringEnabled} onChange={e => setFocusRecurringEnabled(e.target.checked)} style={{ accentColor: '#0EA5E9' }} />
+                  <Icons.Ripple className="w-3.5 h-3.5" style={{ color: '#0EA5E9' }} />
+                  <span style={{ fontWeight: 500 }}>This task repeats</span>
+                </label>
+                {focusRecurringEnabled && (
+                  <div style={{ marginTop: 8, padding: 10, backgroundColor: '#F0F9FF', borderRadius: 8, border: '1px solid #BAE6FD' }}>
+                    <select value={focusRecurrence.type} onChange={e => setFocusRecurrence(prev => ({ ...prev, type: e.target.value }))} style={styles.select}>
+                      {RECURRENCE_TYPES.map(rt => <option key={rt.key} value={rt.key}>{rt.label}</option>)}
+                    </select>
+                    {focusRecurrence.type === 'specific_days' && (
+                      <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+                        {WEEK_DAYS_SHORT.map((d, i) => (
+                          <button key={i} onClick={() => setFocusRecurrence(prev => ({ ...prev, weekDays: prev.weekDays?.includes(i) ? prev.weekDays.filter(x => x !== i) : [...(prev.weekDays || []), i].sort() }))} style={{ width: 28, height: 28, borderRadius: 6, border: `1.5px solid ${focusRecurrence.weekDays?.includes(i) ? '#0EA5E9' : '#E4E4E7'}`, backgroundColor: focusRecurrence.weekDays?.includes(i) ? '#0EA5E920' : 'white', fontSize: 11, fontWeight: 600, color: focusRecurrence.weekDays?.includes(i) ? '#0EA5E9' : '#71717A', cursor: 'pointer' }}>{d}</button>
+                        ))}
+                      </div>
+                    )}
+                    {focusRecurrence.type === 'every_n' && (
+                      <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'center' }}>
+                        <span style={{ fontSize: 12, color: '#71717A' }}>Every</span>
+                        <input type="number" min={1} value={focusRecurrence.everyN || 1} onChange={e => setFocusRecurrence(prev => ({ ...prev, everyN: parseInt(e.target.value) || 1 }))} style={{ ...styles.select, width: 50 }} />
+                        <select value={focusRecurrence.unit || 'days'} onChange={e => setFocusRecurrence(prev => ({ ...prev, unit: e.target.value }))} style={styles.select}>
+                          <option value="days">days</option>
+                          <option value="weeks">weeks</option>
+                        </select>
+                      </div>
+                    )}
+                    {focusRecurrence.type === 'monthly_frequency' && (
+                      <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'center' }}>
+                        <span style={{ fontSize: 12, color: '#71717A' }}>×</span>
+                        <input type="number" min={1} max={31} value={focusRecurrence.frequency || 3} onChange={e => setFocusRecurrence(prev => ({ ...prev, frequency: parseInt(e.target.value) || 3 }))} style={{ ...styles.select, width: 50 }} />
+                        <span style={{ fontSize: 12, color: '#71717A' }}>times per month</span>
+                      </div>
+                    )}
+                    {focusRecurrence.type === 'annual' && (
+                      <input type="text" placeholder="MM-DD (e.g. 03-22)" value={focusRecurrence.annualMonthDay || ''} onChange={e => setFocusRecurrence(prev => ({ ...prev, annualMonthDay: e.target.value }))} style={{ ...styles.select, marginTop: 6, width: '100%' }} />
+                    )}
+                    <div style={{ marginTop: 8 }}>
+                      <input type="text" placeholder="Tracker label (e.g. Kms Run, Pages Read)" value={focusTrackerLabel} onChange={e => setFocusTrackerLabel(e.target.value)} style={{ ...styles.select, width: '100%' }} />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Relationship panel */}
+              {focusPoolId && (
+                <PoolRelationshipPanel poolId={focusPoolId} pools={pools} tasks={tasks} relationships={focusRelationships} setRelationships={setFocusRelationships} />
+              )}
             </div>
           )}
 
-          {focusTaskType === 'pod' && (
-            <div style={{ marginBottom: 16 }}>
-              <label style={styles.label}>Select or create a Pod</label>
-              <PodComboBox pods={pods} onSelect={setFocusPodId} onCreatePod={onCreatePod} selectedPodId={focusPodId} />
-            </div>
-          )}
-
-          <button style={styles.primaryBtn} onClick={onConfirmType} disabled={(focusTaskType === 'pool' && !focusPoolId) || (focusTaskType === 'pod' && !focusPodId)}>
+          <button style={styles.primaryBtn} onClick={onConfirmType} disabled={focusTaskType === 'pool' && !focusPoolId}>
             Continue <Icons.ChevronRight />
           </button>
         </div>
@@ -978,6 +1343,7 @@ function FocusMode({
         <div style={styles.wizardCard}>
           <div style={styles.questionHeader}>
             <p style={styles.wizardProgress}>Question {wizardStep + 1} of {totalQuestions}</p>
+            {coachingResult?.analysis?.taskWellDefined && <span style={{ fontSize: 11, color: '#10B981', backgroundColor: '#F0FDF4', padding: '2px 6px', borderRadius: 4 }}>✓ Well defined</span>}
           </div>
           <h4 style={styles.wizardQuestion}>{currentQuestion.question}</h4>
           <textarea
@@ -996,17 +1362,14 @@ function FocusMode({
           </div>
         </div>
       ) : (
-        <div style={styles.wizardCard}>
-          <div style={{ textAlign: 'center', marginBottom: 16 }}>
-            <Icons.Check className="w-12 h-12" style={{ color: '#10B981', margin: '0 auto 12px' }} />
-            <h4 style={{ fontSize: 18, fontWeight: 700, color: '#18181B' }}>Task Qualified!</h4>
-            <p style={{ fontSize: 13, color: '#71717A' }}>Ready for your work session</p>
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button style={styles.primaryBtn} onClick={onFinish}>Done — Go to Work Mode</button>
-            <button style={styles.ghostBtn} onClick={onSkipTask}>Focus on Next Task</button>
-          </div>
-        </div>
+        <DoneCard
+          task={task}
+          reflection={wizardAnswers}
+          poolName={poolName}
+          recurrenceLabel={recurrenceLabel}
+          onDone={onFinish}
+          onSkip={onSkipTask}
+        />
       )}
 
       {onSkipTask && (
@@ -1025,7 +1388,7 @@ function WorkMode({
   isTimerRunning, isTimerPaused, onStartTimer, onPauseTimer, onStopTimer, onCompleteTask,
   onStartFocus, reviewTaskId, tasks, satisfactionRating, setSatisfactionRating,
   improvements, setImprovements, onSubmitReview, onSkipReview, onGoToFreedom,
-  pools, pods,
+  pools, recurrenceLogs, getRecurrenceLog, setRecurrenceLog,
 }) {
   const { mark, display } = useDebugTimer('Work');
   const [contextFilter, setContextFilter] = useState('waves');
@@ -1035,7 +1398,8 @@ function WorkMode({
   const [showRelationshipGraph, setShowRelationshipGraph] = useState(false);
   const reviewTask = tasks.find(t => t.id === reviewTaskId);
 
-  const waveTasks = pendingTasks.filter(t => !(t.poolIds?.length) && !t.podId);
+  const waveTasks = pendingTasks.filter(t => !(t.poolIds?.length) && !t.recurrenceEnabled);
+  const rippleTasks = pendingTasks.filter(t => t.recurrenceEnabled);
 
   useEffect(() => { mark('rendered'); }, [pendingTasks.length, contextFilter, strategyView]);
 
@@ -1111,9 +1475,9 @@ function WorkMode({
           <div style={{ flex: 1 }}>
             <span style={styles.workTaskTitle} onClick={() => onStartFocus(task.id)} title="Click to focus">{task.content}</span>
             <div style={styles.taskMetaRow}>
-              {task.type === 'pool' && poolName && <span style={styles.poolBadge}>Pool: {poolName}</span>}
-              {task.type === 'pod' && <span style={styles.podBadge}>↻ Pod</span>}
-              {(!task.type || task.type === 'wave') && <span style={styles.waveBadge}>⚡ Wave</span>}
+              {task.type === 'pool' && poolName && <span style={styles.poolBadge}>⧉ {poolName}</span>}
+              {task.recurrenceEnabled && <span style={styles.podBadge}>〜 {recurrenceSummaryLine(task)}</span>}
+              {(!task.type || task.type === 'wave') && !task.recurrenceEnabled && <span style={styles.waveBadge}>⚡ Wave</span>}
             </div>
           </div>
         </div>
@@ -1277,8 +1641,8 @@ function WorkMode({
         <span style={{ fontSize: 14, color: '#71717A', fontWeight: 500 }}>View</span>
         <select value={contextFilter} onChange={e => setContextFilter(e.target.value)} style={{ padding: '6px 10px', border: '1px solid #D4D4D8', borderRadius: 8, fontSize: 14, backgroundColor: 'white' }}>
           <option value="waves">⚡ Waves</option>
-          <option value="pools">⊕ Pools</option>
-          <option value="pods">↻ Pods</option>
+          <option value="pools">⧉ Task Graphs</option>
+          <option value="ripples">〜 Ripples</option>
         </select>
         {(contextFilter === 'waves' || contextFilter === 'pools') && (
           <>
@@ -1298,8 +1662,8 @@ function WorkMode({
       </div>
       <p style={{ fontSize: 13, color: '#A1A1AA', marginBottom: 16 }}>
         {contextFilter === 'waves' && `${waveTasks.length} standalone waves`}
-        {contextFilter === 'pools' && 'Tasks inside a selected Pool'}
-        {contextFilter === 'pods'  && 'Recurring Pod tasks'}
+        {contextFilter === 'pools' && 'Tasks inside a selected Task Graph'}
+        {contextFilter === 'ripples' && `${rippleTasks.length} recurring tasks`}
       </p>
 
       {/* Waves context */}
@@ -1311,10 +1675,10 @@ function WorkMode({
       {contextFilter === 'pools' && (
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 14, fontWeight: 600, color: '#71717A' }}>Pool:</span>
+            <span style={{ fontSize: 14, fontWeight: 600, color: '#71717A' }}>Task Graph:</span>
             <select value={selectedPoolId || ''} onChange={e => setSelectedPoolId(e.target.value)} style={{ ...styles.input, flex: 1, maxWidth: 300 }}>
-              <option value="">— Select a Pool —</option>
-              {pools.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              <option value="">— Select a Task Graph —</option>
+              {pools.map(p => <option key={p.id} value={p.id}>⧉ {p.name}</option>)}
             </select>
             {selectedPool && (
               <label style={styles.toggleLabel}>
@@ -1325,7 +1689,7 @@ function WorkMode({
             {selectedPool && <span style={{ fontSize: 12, color: '#71717A' }}>{poolTasksForView.length} tasks</span>}
           </div>
 
-          {!selectedPoolId && <EmptyState icon={<Icons.Layers className="w-8 h-8" />} message="Select a Pool to see its tasks" />}
+          {!selectedPoolId && <EmptyState icon={<Icons.TaskGraph className="w-8 h-8" />} message="Select a Task Graph to see its tasks" />}
 
           {selectedPool && showRelationshipGraph && (
             <RelationshipGraph poolId={selectedPoolId} pools={pools} tasks={tasks} onTaskClick={onStartFocus} />
@@ -1337,9 +1701,24 @@ function WorkMode({
         </div>
       )}
 
-      {/* Pods context */}
-      {contextFilter === 'pods' && (
-        <EmptyState icon={<Icons.Repeat className="w-8 h-8" />} message="Pod calendar view not available in stress test" />
+      {/* Ripples context */}
+      {contextFilter === 'ripples' && (
+        <div>
+          <div style={{ backgroundColor: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: 8, padding: '8px 12px', marginBottom: 12, fontSize: 12, color: '#0369A1' }}>
+            <Icons.Ripple className="w-4 h-4" style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />
+            <strong>Ripples</strong> · Recurring tasks with daily check-ins
+          </div>
+          {rippleTasks.length === 0 ? (
+            <EmptyState icon={<Icons.Ripple className="w-8 h-8" />} message="No recurring tasks yet. Enable recurrence in Focus Mode!" />
+          ) : (
+            <div style={styles.listWavesContainer}>
+              {rippleTasks.slice(0, 50).map(task => (
+                <RippleTaskCard key={task.id} task={task} getRecurrenceLog={getRecurrenceLog} setRecurrenceLog={setRecurrenceLog} onCompleteTask={onCompleteTask} onStartFocus={onStartFocus} />
+              ))}
+              {rippleTasks.length > 50 && <p style={{ color: '#71717A', fontSize: 12, textAlign: 'center', padding: 12 }}>… and {rippleTasks.length - 50} more</p>}
+            </div>
+          )}
+        </div>
       )}
 
       <DebugOverlay label="WORK" timings={display} taskCount={pendingTasks.length} />
@@ -1371,16 +1750,27 @@ function RelationshipGraph({ poolId, pools, tasks, onTaskClick }) {
 
   return (
     <div style={styles.graphContainer}>
-      <h4 style={styles.graphTitle}>⊕ {pool?.name} — Relationship Graph</h4>
+      <h4 style={styles.graphTitle}>⧉ {pool?.name} — Relationship Graph</h4>
       <svg width={width} height={height} style={styles.graphSvg}>
+        <defs>
+          {RELATIONSHIP_TYPES.map(rt => (
+            <marker key={rt.key} id={`arrow-${rt.key}`} markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+              <path d="M0,0 L0,6 L9,3 z" fill={rt.color} />
+            </marker>
+          ))}
+        </defs>
         {relationships.map((rel, idx) => {
           const from = nodePositions[rel.fromTaskId];
           const to = nodePositions[rel.toTaskId];
           if (!from || !to) return null;
           const rt = RELATIONSHIP_TYPES.find(x => x.key === rel.type);
+          const dx = to.x - from.x, dy = to.y - from.y;
+          const angle = Math.atan2(dy, dx);
+          const arrowLen = 8;
+          const endX = to.x - 32 * Math.cos(angle), endY = to.y - 32 * Math.sin(angle);
           return (
             <g key={idx}>
-              <line x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke={rt?.color || '#D4D4D8'} strokeWidth="2" strokeDasharray={rel.type === 'schedule' ? '5,5' : undefined} />
+              <line x1={from.x} y1={from.y} x2={endX} y2={endY} stroke={rt?.color || '#D4D4D8'} strokeWidth="2" strokeDasharray={rel.type === 'pairs_with' ? '5,5' : undefined} markerEnd={`url(#arrow-${rel.type})`} />
               <text x={(from.x + to.x) / 2} y={(from.y + to.y) / 2 - 5} textAnchor="middle" fill={rt?.color} fontSize="10" fontWeight="600">{rt?.icon}</text>
             </g>
           );
@@ -1397,6 +1787,57 @@ function RelationshipGraph({ poolId, pools, tasks, onTaskClick }) {
         })}
       </svg>
       <p style={styles.graphHint}>Click on a node to focus on that task</p>
+    </div>
+  );
+}
+
+
+// ============================================================================
+// RIPPLE TASK CARD - For recurring tasks with check-in logging
+// ============================================================================
+function RippleTaskCard({ task, getRecurrenceLog, setRecurrenceLog, onCompleteTask, onStartFocus }) {
+  const today = todayStr();
+  const log = getRecurrenceLog(task.id, today);
+  const [trackerValue, setTrackerValue] = useState(log.trackerValues?.['t1'] || '');
+
+  const statusColors = {
+    planned: { bg: '#F4F4F5', border: '#E4E4E7', text: '#71717A' },
+    done: { bg: '#F0FDF4', border: '#86EFAC', text: '#10B981' },
+    skipped: { bg: '#FEF2F2', border: '#FECACA', text: '#EF4444' },
+  };
+  const colors = statusColors[log.status] || statusColors.planned;
+
+  const handleStatusChange = (newStatus) => {
+    setRecurrenceLog(task.id, today, { status: newStatus, trackerValues: { 't1': trackerValue } });
+  };
+
+  return (
+    <div style={{ ...styles.workTaskCard, backgroundColor: colors.bg, borderColor: colors.border }}>
+      <div style={styles.workTaskHeader}>
+        <div style={{ flex: 1 }}>
+          <span style={styles.workTaskTitle} onClick={() => onStartFocus(task.id)}>{task.content}</span>
+          <div style={styles.taskMetaRow}>
+            <span style={{ ...styles.podBadge, backgroundColor: '#0EA5E915' }}>〜 {recurrenceSummaryLine(task)}</span>
+          </div>
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 12, color: '#71717A' }}>Today:</span>
+        {['planned', 'done', 'skipped'].map(s => (
+          <button key={s} onClick={() => handleStatusChange(s)} style={{ padding: '4px 10px', borderRadius: 6, border: `1px solid ${log.status === s ? colors.text : '#E4E4E7'}`, backgroundColor: log.status === s ? colors.text : 'white', color: log.status === s ? 'white' : '#71717A', fontSize: 12, fontWeight: 500, textTransform: 'capitalize', cursor: 'pointer' }}>{s}</button>
+        ))}
+        {task.recurrenceTrackerLabel && (
+          <input
+            type="text"
+            placeholder={task.recurrenceTrackerLabel}
+            value={trackerValue}
+            onChange={e => { setTrackerValue(e.target.value); setRecurrenceLog(task.id, today, { trackerValues: { 't1': e.target.value } }); }}
+            style={{ ...styles.select, flex: 1, minWidth: 80, padding: '4px 8px', fontSize: 12 }}
+          />
+        )}
+        <button style={styles.focusBtnSmall} onClick={() => onStartFocus(task.id)}><Icons.Hourglass className="w-3 h-3" /></button>
+        <button style={styles.checkbox} onClick={() => onCompleteTask(task.id)} title="Mark as complete for today" />
+      </div>
     </div>
   );
 }
@@ -1448,7 +1889,7 @@ function ReviewMode({ stats, reviews, tasks, completedTasks, onReactivateTask, o
           <EmptyState icon={<Icons.Check className="w-8 h-8" />} message="Complete tasks to see them here" />
         ) : (
           <div style={styles.completedTasksList}>
-            {completedTasks.slice(0, 30).map(task => {
+            {completedTasks.map(task => {
               const review = getTaskReview(task.id);
               const isEditing = editingReviewId === task.id;
               const reasons = task.reflection ? Object.entries(task.reflection).filter(([k, v]) => v && String(v).trim()) : [];
@@ -1510,7 +1951,6 @@ function ReviewMode({ stats, reviews, tasks, completedTasks, onReactivateTask, o
                 </div>
               );
             })}
-            {completedTasks.length > 30 && <p style={{ color: '#71717A', fontSize: 12, textAlign: 'center', padding: 12 }}>... and {completedTasks.length - 30} more completed tasks</p>}
           </div>
         )}
       </div>
@@ -1663,6 +2103,7 @@ const styles = {
   // Common
   input: { padding: '10px 14px', border: '1px solid #D4D4D8', borderRadius: 8, fontSize: 14, outline: 'none', backgroundColor: 'white', width: '100%', boxSizing: 'border-box' },
   textarea: { width: '100%', minHeight: 100, padding: 12, border: '1px solid #D4D4D8', borderRadius: 8, fontSize: 14, outline: 'none', resize: 'vertical', marginBottom: 12, boxSizing: 'border-box', fontFamily: 'inherit' },
+  select: { padding: '8px 12px', border: '1px solid #D4D4D8', borderRadius: 8, fontSize: 14, outline: 'none', backgroundColor: 'white', cursor: 'pointer' },
   primaryBtn: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 20px', backgroundColor: '#FF6B6B', color: 'white', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' },
   ghostBtn: { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', backgroundColor: 'transparent', border: 'none', color: '#71717A', fontSize: 13, cursor: 'pointer' },
   outlineBtn: { padding: '8px 14px', backgroundColor: 'transparent', border: '1px solid #E4E4E7', color: '#18181B', borderRadius: 8, fontSize: 13, cursor: 'pointer' },
