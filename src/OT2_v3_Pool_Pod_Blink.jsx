@@ -1211,6 +1211,7 @@ export default function OT2App() {
                 onStartTimer={startTimer} onPauseTimer={pauseTimer} onStopTimer={stopTimer}
                 onCompleteTask={completeTask}
                 onStartFocus={startFocus}
+                onUpdateTaskManualPosition={updateTaskManualPosition}
                 reviewTaskId={reviewTaskId} tasks={tasks}
                 satisfactionRating={satisfactionRating} setSatisfactionRating={setSatisfactionRating}
                 improvements={improvements} setImprovements={setImprovements}
@@ -3007,7 +3008,7 @@ function WorkMode({
   pendingTasks, completedTasks, timers, getElapsedSeconds, formatTimer,
   isTimerRunning, isTimerPaused, getPausedDuration,
   onStartTimer, onPauseTimer, onStopTimer, onCompleteTask,
-  onStartFocus,
+  onStartFocus, onUpdateTaskManualPosition,
   reviewTaskId, tasks, satisfactionRating, setSatisfactionRating,
   improvements, setImprovements, onSubmitReview, onSkipReview, onGoToFreedom,
   pools, recurrenceLogs, getRecurrenceLog, setRecurrenceLog,
@@ -3483,9 +3484,9 @@ function WorkMode({
       e.preventDefault();
       setDragOverLane(null);
       const data = JSON.parse(e.dataTransfer.getData('application/json') || '{}');
-      if (data.taskId) {
+      if (data.taskId && onUpdateTaskManualPosition) {
         // Update manual position for the task
-        updateTaskManualPosition(data.taskId, 'kanbanLane', laneKey);
+        onUpdateTaskManualPosition(data.taskId, 'kanbanLane', laneKey);
       }
     };
 
@@ -3631,8 +3632,8 @@ function WorkMode({
         e.preventDefault();
         setDragOverLane(null);
         const data = JSON.parse(e.dataTransfer.getData('application/json') || '{}');
-        if (data.taskId) {
-          updateTaskManualPosition(data.taskId, 'kanbanLane', laneKey);
+        if (data.taskId && onUpdateTaskManualPosition) {
+          onUpdateTaskManualPosition(data.taskId, 'kanbanLane', laneKey);
         }
       };
 
@@ -3694,8 +3695,8 @@ function WorkMode({
         e.preventDefault();
         setDragOverZone(null);
         const data = JSON.parse(e.dataTransfer.getData('application/json') || '{}');
-        if (data.taskId) {
-          updateTaskManualPosition(data.taskId, 'dailyZenZone', zoneKey);
+        if (data.taskId && onUpdateTaskManualPosition) {
+          onUpdateTaskManualPosition(data.taskId, 'dailyZenZone', zoneKey);
         }
       };
 
@@ -3766,8 +3767,8 @@ function WorkMode({
         e.preventDefault();
         setDragOverQuad(null);
         const data = JSON.parse(e.dataTransfer.getData('application/json') || '{}');
-        if (data.taskId) {
-          updateTaskManualPosition(data.taskId, 'workIQQuadrant', quadKey);
+        if (data.taskId && onUpdateTaskManualPosition) {
+          onUpdateTaskManualPosition(data.taskId, 'workIQQuadrant', quadKey);
         }
       };
 
