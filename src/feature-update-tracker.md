@@ -1,7 +1,7 @@
 # OT² Feature Update Tracker
 
 > Format: Each entry has a status badge — `[PLANNED]` · `[IN PROGRESS]` · `[DEV COMPLETE]` · `[VERIFIED]`
-> Baseline: **2026-W17-1** · Last updated: 2026-04-23 · FEAT-039 DEV COMPLETE
+> Baseline: **2026-W17-1** · Last updated: 2026-04-23 · FEAT-040 DEV COMPLETE
 
 ---
 
@@ -49,6 +49,25 @@
 
 **Files changed:** `OT2_v3_Pool_Pod_Blink.jsx`  
 **Backup:** `OT2_v3_Pool_Pod_Blink-2026-w17-d03-b3.jsx`
+
+---
+
+## FEAT-040 · Marketplace Seeding Update (Latest Architecture) `[DEV COMPLETE]`
+
+**Requested:** 2026-04-23 (W17-d03)  
+**Location:** Marketplace Modal & Seeding Logic
+
+**Description:** The Marketplace functionality (pre-built AI-seeded apps) has been rewritten to mirror the latest OT² architecture. It no longer creates legacy "Pods", but instead correctly seeds data using the unified `Task Graph` + `Ripples` (recurring tasks) + `One-off Tasks` structure.
+
+**Key improvements:**
+- **Schema Update:** Replaced legacy `pools` and `pods` keys in `MARKETPLACE_TEMPLATES` with `taskGraphs`, `ripples`, and `tasks`.
+- **Accurate Ripples Seeding:** Seeded ripples are now created correctly as `tasks` with `type: 'pool'` and `recurrenceEnabled: true`.
+- **Rich Seed Data:** Included base Socratic answers (`reflection`) for each seeded task (e.g., urgency, deadline, why/how/now). This ensures that immediately after seeding, the Kanban board populates beautifully into 'Today', 'Next', and 'Waitlist' lanes based on the new ADHD categorization rules.
+- **One-off Tasks:** Each template now also seeds a handful of one-off tasks (e.g., "Buy NCERT Textbooks", "Book Flights") to provide immediate value.
+- **UI Updates:** The Marketplace modal renders the exact count of Task Graphs, Ripples, and pre-seeded tasks.
+
+**Files changed:** `OT2_v3_Pool_Pod_Blink.jsx`  
+**Backup:** `OT2_v3_Pool_Pod_Blink-2026-w17-d03-b6.jsx`
 
 ---
 

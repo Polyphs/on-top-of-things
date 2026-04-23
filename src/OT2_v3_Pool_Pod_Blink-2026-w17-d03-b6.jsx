@@ -1017,9 +1017,8 @@ export default function OT2App() {
       description: 'Complete NEET preparation plan with 10 subject pools and daily recurring study pods for every chapter.',
       tags: ['Exam Prep', 'Students', 'Science'],
       color: '#6366F1',
-      taskGraphs: ['Physics: Mechanics & Motion', 'Physics: Electrostatics & Current', 'Physics: Optics & Modern Physics', 'Physics: Thermodynamics & Waves', 'Chemistry: Physical Chemistry', 'Chemistry: Organic Chemistry', 'Chemistry: Inorganic Chemistry', 'Biology: Cell Biology & Biomolecules', 'Biology: Human Physiology & Systems', 'Biology: Genetics, Evolution & Ecology'],
-      ripples: ['🔵 Mechanics Sessions', '⚡ Electrostatics Sessions', '🔭 Optics Sessions', '🌡 Thermo & Waves Sessions', '⚗️ Physical Chem Sessions', '🧪 Organic Chem Sessions', '🧲 Inorganic Chem Sessions', '🔬 Cell Bio Sessions', '🫀 Physiology Sessions', '🧬 Genetics Sessions', '📝 Weekly Mock Test', '🌙 Night Flashcard Habit'],
-      tasks: ['Review Syllabus', 'Buy NCERT Textbooks', 'Register for Exam', 'Create Study Corner', 'Download Previous Year Papers']
+      pools: ['Physics: Mechanics & Motion', 'Physics: Electrostatics & Current', 'Physics: Optics & Modern Physics', 'Physics: Thermodynamics & Waves', 'Chemistry: Physical Chemistry', 'Chemistry: Organic Chemistry', 'Chemistry: Inorganic Chemistry', 'Biology: Cell Biology & Biomolecules', 'Biology: Human Physiology & Systems', 'Biology: Genetics, Evolution & Ecology'],
+      pods: ['🔵 Mechanics Sessions', '⚡ Electrostatics Sessions', '🔭 Optics Sessions', '🌡 Thermo & Waves Sessions', '⚗️ Physical Chem Sessions', '🧪 Organic Chem Sessions', '🧲 Inorganic Chem Sessions', '🔬 Cell Bio Sessions', '🫀 Physiology Sessions', '🧬 Genetics Sessions', '📝 Weekly Mock Test', '🌙 Night Flashcard Habit'],
     },
     {
       id: 'home-party-organizer',
@@ -1029,9 +1028,8 @@ export default function OT2App() {
       description: 'Plan any home party end-to-end — from guest invites and catering to décor and the day-of checklist.',
       tags: ['Events', 'Home', 'Social'],
       color: '#F59E0B',
-      taskGraphs: ['Guest Management', 'Food & Catering', 'Venue & Décor', 'Entertainment & Activities', 'Shopping & Supplies'],
-      ripples: ['📋 RSVP Tracking', '🛒 Shopping Runs', '🍽️ Day-of Catering Tasks', '🎶 Music & Ambience Setup'],
-      tasks: ['Send Save-the-Dates', 'Finalize Menu', 'Order Cake', 'Book DJ or Band', 'Buy Party Favors', 'Clean the House']
+      pools: ['Guest Management', 'Food & Catering', 'Venue & Décor', 'Entertainment & Activities', 'Shopping & Supplies'],
+      pods: ['📋 RSVP Tracking', '🛒 Shopping Runs', '🍽️ Day-of Catering Tasks', '🎶 Music & Ambience Setup'],
     },
     {
       id: 'one-week-family-trip',
@@ -1041,72 +1039,21 @@ export default function OT2App() {
       description: 'A structured 7-day family travel plan covering bookings, packing, daily itinerary, and post-trip tasks.',
       tags: ['Travel', 'Family', 'Vacation'],
       color: '#10B981',
-      taskGraphs: ['Pre-Trip Bookings', 'Packing & Preparation', 'Day 1–3 Itinerary', 'Day 4–7 Itinerary', 'Post-Trip & Returns'],
-      ripples: ['🗺️ Daily Itinerary Check-in', '🎒 Packing Checklist', '📸 Memories & Notes', '🧾 Expense Tracker'],
-      tasks: ['Book Flights', 'Reserve Hotel', 'Renew Passports', 'Arrange Pet Care', 'Buy Travel Insurance', 'Check Weather Forecast']
+      pools: ['Pre-Trip Bookings', 'Packing & Preparation', 'Day 1–3 Itinerary', 'Day 4–7 Itinerary', 'Post-Trip & Returns'],
+      pods: ['🗺️ Daily Itinerary Check-in', '🎒 Packing Checklist', '📸 Memories & Notes', '🧾 Expense Tracker'],
     },
   ];
 
-  // Seed a marketplace template into the app's Task Graphs (pools), Tasks, and Ripples
+  // Seed a marketplace template into the app's pools & pods
   const handleSeedTemplate = async (template) => {
-    const newPools = template.taskGraphs.map(name => ({
+    const newPools = template.pools.map(name => ({
       id: uid(), name, createdAt: Date.now(), completionDate: null, completionDays: null, relationships: [],
     }));
-    
-    const newTasks = [];
-    
-    // Seed Ripples (recurring tasks) into the new pools
-    template.ripples.forEach((name, i) => {
-      const poolId = newPools[i % newPools.length].id;
-      newTasks.push({
-        id: uid(),
-        content: name,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        isCompleted: false,
-        reflection: {
-          deadline: 'today',
-          urgency: 'Routine',
-          why: 'Consistent tracking for ' + template.title,
-          how: 'Daily check-ins',
-          now: 'Habit building phase'
-        },
-        type: 'pool',
-        poolIds: [poolId],
-        podId: null,
-        recurrenceEnabled: true,
-        recurrence: { type: 'daily', unit: 'days', frequency: 1 },
-        recurrenceTrackerLabel: name.replace(/[^a-zA-Z]/g, '').slice(0, 2).toUpperCase() || 'TR'
-      });
-    });
-
-    // Seed One-off Tasks into the new pools
-    template.tasks.forEach((name, i) => {
-      const poolId = newPools[i % newPools.length].id;
-      newTasks.push({
-        id: uid(),
-        content: name,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        isCompleted: false,
-        reflection: {
-          deadline: 'Next Week',
-          urgency: 'High',
-          why: 'Crucial step for ' + template.title,
-          how: 'Focused execution',
-          now: 'Prerequisite for the next phases'
-        },
-        type: 'pool',
-        poolIds: [poolId],
-        podId: null,
-        recurrenceEnabled: false,
-        recurrence: null,
-        recurrenceTrackerLabel: ''
-      });
-    });
-
+    const newPods = template.pods.map(name => ({
+      id: uid(), name, podType: 'recurring', recurrence: { type: 'daily' }, trackerFields: [], createdAt: Date.now(),
+    }));
     setPools(prev => [...prev, ...newPools]);
-    setTasks(prev => [...prev, ...newTasks]);
+    setPods(prev => [...prev, ...newPods]);
     setSeedingDone(true);
     setTimeout(() => {
       setSeedingTemplate(null);
@@ -5491,49 +5438,42 @@ function MarketplaceModal({
                   <p style={{ fontSize: 13, color: '#52525B', lineHeight: 1.5, margin: 0 }}>{tpl.description}</p>
                 </div>
 
-                {/* Card body — task graph/ripple/task summary */}
+                {/* Card body — pool/pod summary */}
                 <div style={{ padding: '12px 18px' }}>
                   <div style={{ marginBottom: 10 }}>
                     <p style={{ fontSize: 11, fontWeight: 700, color: '#71717A', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5 }}>
-                      ⧉ {tpl.taskGraphs.length} Task Graphs
+                      ⧉ {tpl.pools.length} Task Graphs
                     </p>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                      {tpl.taskGraphs.slice(0, 4).map((p, i) => (
+                      {tpl.pools.slice(0, 4).map((p, i) => (
                         <span key={i} style={{ fontSize: 11, padding: '2px 7px', backgroundColor: `${tpl.color}15`, color: tpl.color, borderRadius: 4, fontWeight: 500 }}>
                           {p.length > 22 ? p.slice(0, 22) + '…' : p}
                         </span>
                       ))}
-                      {tpl.taskGraphs.length > 4 && (
+                      {tpl.pools.length > 4 && (
                         <span style={{ fontSize: 11, padding: '2px 7px', backgroundColor: '#F4F4F5', color: '#71717A', borderRadius: 4 }}>
-                          +{tpl.taskGraphs.length - 4} more
+                          +{tpl.pools.length - 4} more
                         </span>
                       )}
                     </div>
                   </div>
-                  <div style={{ marginBottom: 10 }}>
+                  <div style={{ marginBottom: 14 }}>
                     <p style={{ fontSize: 11, fontWeight: 700, color: '#71717A', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5 }}>
-                      〜 {tpl.ripples.length} Ripples
+                      〜 {tpl.pods.length} Ripples
                     </p>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                      {tpl.ripples.slice(0, 3).map((p, i) => (
+                      {tpl.pods.slice(0, 3).map((p, i) => (
                         <span key={i} style={{ fontSize: 11, padding: '2px 7px', backgroundColor: '#F0F9FF', color: '#0EA5E9', borderRadius: 4, fontWeight: 500 }}>
                           {p.length > 22 ? p.slice(0, 22) + '…' : p}
                         </span>
                       ))}
-                      {tpl.ripples.length > 3 && (
+                      {tpl.pods.length > 3 && (
                         <span style={{ fontSize: 11, padding: '2px 7px', backgroundColor: '#F4F4F5', color: '#71717A', borderRadius: 4 }}>
-                          +{tpl.ripples.length - 3} more
+                          +{tpl.pods.length - 3} more
                         </span>
                       )}
                     </div>
                   </div>
-                  {tpl.tasks && tpl.tasks.length > 0 && (
-                    <div style={{ marginBottom: 14 }}>
-                      <p style={{ fontSize: 11, fontWeight: 700, color: '#71717A', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5 }}>
-                        ✓ {tpl.tasks.length} Pre-seeded Tasks
-                      </p>
-                    </div>
-                  )}
 
                   {/* Tags */}
                   <div style={{ display: 'flex', gap: 4, marginBottom: 14, flexWrap: 'wrap' }}>
