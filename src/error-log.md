@@ -1,7 +1,91 @@
 # OT² Error Log
 
 > Format: Each entry has a status badge — `[OPEN]` · `[DEV COMPLETE]` · `[VERIFIED]`
-> Baseline: **2026-W16-1** · Last updated: 2026-04-17
+> Baseline: **2026-W17-1** · Last updated: 2026-04-23
+
+---
+
+## ERR-034 · Annual recurrence date picker shows year 2000 instead of selected year `[DEV COMPLETE]`
+
+**Reported:** 2026-04-23 (W17-d03)  
+**Mode:** Focus Mode → Associate Step → Recurring Tasks
+
+**Description:** When selecting an annual recurrence date using the date picker, the input displays the correct month/day but the year shows as "2000" instead of the current year (2026). The date picker UI itself shows 2026, but after selection the displayed value becomes "23-04-2000".
+
+**Root Cause:** The annual recurrence date input uses `value={focusRecurrence.annualMonthDay ? `2000-${focusRecurrence.annualMonthDay}` : ''}` which hardcodes year 2000 as a placeholder. The `annualMonthDay` field only stores MM-DD format, not the full date. When parsing/displaying, the year 2000 is shown instead of being masked or replaced with current year.
+
+**Fix:** Replaced `type="date"` input with `type="text"` input that accepts MM-DD format directly. Added input validation to allow only numbers and dashes. Added `onBlur` auto-formatting that converts "0501" to "05-01". Added placeholder text "MM-DD" and example hint "e.g., 01-25". This eliminates the year display issue entirely.
+
+**Files changed:** `OT2_v3_Pool_Pod_Blink.jsx`
+
+---
+
+## ERR-033 · Freedom Mode tasks skip Socratic Clarity and go straight to Associate `[DEV COMPLETE]`
+
+**Reported:** 2026-04-23 (W17-d03)  
+**Mode:** Focus Mode → New Task Flow
+
+**Description:** When a task is created in Freedom Mode and then opened in Focus Mode, it incorrectly starts at the "Associate" step (task type selection, pool assignment) instead of the "Socratic Clarity" step. The new flow (FEAT-037) requires ALL tasks to start with Socratic questions first, regardless of origin.
+
+**Root Cause:** The `startFocus` function or `FocusMode` component initialization may be checking if a task already has associations (poolIds, type) and skipping the Socratic step. Alternatively, the `focusPhase` state may not be initialized to 'clarity' for new tasks from Freedom Mode.
+
+**Fix:** Changed `setFocusPhase('associate')` to `setFocusPhase('clarity')` in the `startFocus` function. All tasks now enter Focus Mode at the Socratic Clarity step regardless of origin (Freedom Mode, existing tasks, etc.).
+
+**Files changed:** `OT2_v3_Pool_Pod_Blink.jsx`
+
+---
+
+## ERR-032 · Recurring task dropdown menus not working after selection `[DEV COMPLETE]`
+
+**Reported:** 2026-04-23 (W17-d03)  
+**Mode:** Focus Mode → Associate Step
+**Description:** After selecting a recurrence type from the dropdown (e.g., "Specific days of week"), the type-specific configuration blocks (week day buttons, Every N inputs, etc.) are not displayed. The dropdown appears to accept the selection but the UI doesn't update to show the relevant configuration options.
+**Root Cause:** During FEAT-037 (2-Step Focus Mode rewrite), the type-specific recurrence configuration blocks were removed from the Associate step to simplify the UI, but this broke the expected behavior where selecting a recurrence type should reveal its configuration options.
+**Fix:** Add back the type-specific recurrence configuration blocks (specific_days, every_n, monthly_frequency, annual) that respond to `focusRecurrence.type` changes. Display them conditionally below the recurrence type dropdown.
+**Files changed:** `OT2_v3_Pool_Pod_Blink.jsx`
+
+---
+
+## ERR-031 · Tagline removed during header refactor `[DEV COMPLETE]`
+
+**Reported:** 2026-04-21 (W17-d01)  
+**Mode:** Global Header
+**Description:** During FEAT-028 (inline hero integration), the tagline "Fast capture, Socratic Clarity, Timed Execution, Zen Learnings" was accidentally removed from the header. Only the hero title remained.
+**Root Cause:** The initial inline hero implementation only included the `<h1>` title, missing the `<p>` subtitle paragraph.
+**Fix:** Added `inlineHeroSubtitle` style and restored the `<p>` tagline element inside the `inlineHero` wrapper div. Adjusted padding to accommodate the two-line header content.
+**Files changed:** `OT2_v3_Pool_Pod_Blink.jsx`
+
+---
+
+## ERR-030 · Focus Mode textarea loses focus on Next/Back/Skip `[DEV COMPLETE]`
+
+**Reported:** 2026-04-18 (W16-d06)
+**Mode:** Focus Mode → Socratic Questions
+**Description:** After clicking Next/Back/Skip, the textarea on the new question was not focused. User had to click inside it before typing, then click Next again — requiring two mouse interactions per question.
+**Root Cause:** `autoFocus` only fires on initial mount, not on re-renders when `wizardStep` changes.
+**Fix:** Extracted `WizardTextarea` as a top-level React component (before `DoneCard`). Parent wizard card now has `key={wizardStep}` which forces a full remount on each step — `WizardTextarea`'s `useEffect` then calls `ref.current.focus()` immediately. Added Ctrl/Cmd+Enter keyboard shortcut to advance step without touching the mouse.
+**Files changed:** `OT2_v3_Pool_Pod_Blink.jsx`
+
+---
+
+## ERR-029 · Dropdown and combobox close on hover / require multiple clicks `[DEV COMPLETE]`
+
+**Reported:** 2026-04-18 (W16-d06)
+**Mode:** Focus Mode → Task Graph combobox; Focus Mode → Ripple combobox; Header nav dropdowns; Dormant task toggle
+**Description:** Dropdowns closed when moving the mouse over items, requiring multiple attempts to click. Same issue on the "Show dormant tasks" disclosure toggle — the arrow was unresponsive on first click.
+**Root Cause:** `document.addEventListener('mousedown', outsideClickHandler)` fired when the user pressed the mouse button *on a dropdown item*, because at that moment the item was technically inside the document but the focus was leaving the input — causing the handler to race and close the dropdown before the click registered on the item.
+**Fix:** Changed all dropdown item interactions from `onClick` to `onMouseDown` with `e.preventDefault()`. This prevents the blur event from firing before selection and ensures the outside-click handler never sees the item click as an "outside" event. Added `onMouseEnter/Leave` hover highlighting to all items for clear visual feedback. Applied to: `PoolComboBox`, `PodComboBox`, `NavDropdown`.
+**Files changed:** `OT2_v3_Pool_Pod_Blink.jsx`
+
+---
+
+## ERR-028 · Data migration — `helps_reach` → `results_in` (FEAT-025) `[DEV COMPLETE]`
+
+**Reported:** 2026-04-18
+**Mode:** Global — localStorage task data, StressTest seeder
+**Description:** FEAT-025 renames `helps_reach` to `results_in`. Any existing task relationships stored with `type: 'helps_reach'` must be silently migrated on load. StressTest seeder pools also referenced `helps_reach` in round-robin relationship assignment.
+**Fix:** `migrateRelationshipType` extended: `'helps_reach' → 'results_in'`. Seeder updated to use `['blocks', 'pairs_with', 'enables', 'results_in']` array. Migration runs on every task load so no data loss occurs.
+**Files changed:** `OT2_v3_Pool_Pod_Blink.jsx`, `OT2_StressTest.jsx`
 
 ---
 

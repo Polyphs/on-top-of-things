@@ -798,28 +798,14 @@ export default function OT2App() {
   // === TASK FUNCTIONS ===
   const addTask = () => {
     if (!newTask.trim()) return;
-    const task = { id: uid(), content: newTask.trim(), createdAt: Date.now(), updatedAt: Date.now(), isCompleted: false, reflection: null, type: 'wave', poolIds: [], podId: null };
+    const task = { id: uid(), content: newTask.trim(), createdAt: Date.now(), isCompleted: false, reflection: null, type: 'wave', poolIds: [], podId: null };
     setTasks(p => [task, ...p]);
     setNewTask('');
   };
   const updateTaskContent = (id, newContent) => {
-    setTasks(p => p.map(t => t.id === id ? { ...t, content: newContent, updatedAt: Date.now() } : t));
+    setTasks(p => p.map(t => t.id === id ? { ...t, content: newContent } : t));
   };
   const deleteTask = (id) => { setTasks(p => p.filter(t => t.id !== id)); stopTimer(id); };
-  
-  // FEAT-039: Update manual position for drag-and-drop
-  const updateTaskManualPosition = (id, positionType, positionValue) => {
-    setTasks(p => p.map(t => t.id === id ? { 
-      ...t, 
-      manualPosition: { 
-        ...(t.manualPosition || {}), 
-        [positionType]: positionValue,
-        updatedAt: Date.now()
-      },
-      updatedAt: Date.now()
-    } : t));
-  };
-  
   const completeTask = (id) => {
     setTasks(p => p.map(t => t.id === id ? { ...t, isCompleted: true, completedAt: new Date().toISOString() } : t));
     stopTimer(id);
@@ -854,8 +840,8 @@ export default function OT2App() {
   const startFocus = (taskId) => {
     const task = tasks.find(t => t.id === taskId);
     setFocusedTaskId(taskId);
-    // FEAT-037: Always start with Socratic Clarity, regardless of task origin
-    setFocusPhase('clarity');
+    // 2-step flow: reset to Associate phase
+    setFocusPhase('associate');
     setSocraticQuestion(null);
     setSocraticAnswer('');
     setWizardStep(0);
@@ -2051,14 +2037,8 @@ function DoneCard({ wizardAnswers, questions, setQuestions, setWizardStep, setWi
 }
 
 // ============================================================================
-// FOCUS MODE — 2-Step Flow: Socratic Clarity → Associate (Revised FEAT-037)
+// FOCUS MODE — 2-Step Flow: Associate → Socratic Clarity
 // ============================================================================
-const SOCRATIC_QUESTIONS = [
-  { key: 'why', question: 'Why does this task truly matter to you?', placeholder: 'Look beyond the surface — what deeper goal or value does this serve?', purpose: 'purpose' },
-  { key: 'how', question: 'What does "done" look like for this task?', placeholder: 'Describe the specific outcome that would make this feel complete...', purpose: 'approach' },
-  { key: 'now', question: 'What makes this the right thing to work on NOW?', placeholder: 'Why today? What happens if you wait? What changes if you act?', purpose: 'urgency' },
-];
-
 function FocusMode({
   task, pendingTasks,
   focusPhase, setFocusPhase,
@@ -2077,8 +2057,6 @@ function FocusMode({
   const [isLoading, setIsLoading] = useState(false);
   const [editTitle, setEditTitle] = useState(task.content);
   const [isTitleEditing, setIsTitleEditing] = useState(false);
-  const [activeQuestion, setActiveQuestion] = useState(0); // Which question textarea is focused
-  const [aiSuggestions, setAiSuggestions] = useState(null); // AI suggestions for Associate step
   const editTitleRef = useRef(null);
 
   // Focus on editTitle input when Focus Mode mounts
@@ -2088,51 +2066,40 @@ function FocusMode({
     }
   }, [task.id, isTitleEditing]);
 
-  // Generate AI suggestions for Associate step based on Socratic answers
-  const generateAISuggestions = async () => {
+  // Generate single intelligent Socratic question based on task context
+  const generateSocraticQuestion = async () => {
     setIsLoading(true);
     try {
-      const prompt = `Based on these Socratic reflections about the task "${task.content}":
+      const pool = focusPoolId ? pools.find(p => p.id === focusPoolId) : null;
+      const relatedTasks = focusRelationships.map(r => {
+        const t = tasks.find(x => x.id === r.toTaskId);
+        return t ? { content: t.content, type: r.type } : null;
+      }).filter(Boolean);
 
-WHY it matters: "${wizardAnswers.why || 'Not specified'}"
-What DONE looks like: "${wizardAnswers.how || 'Not specified'}"
-Why NOW: "${wizardAnswers.now || 'Not specified'}"
+      const prompt = `Task: "${task.content}"
+${pool ? `Task Graph: "${pool.title}"` : ''}
+${relatedTasks.length > 0 ? `Related tasks: ${relatedTasks.map(r => `"${r.content}" (${r.type})`).join(', ')}` : ''}
+${focusRecurringEnabled ? `This is a recurring ${focusRecurrence.type} task.` : ''}
 
-Analyze and suggest:
-1. Should this be a Wave (standalone) or Task Graph (connected)? Explain why in 1 sentence.
-2. If Task Graph, what pool/project does this likely belong to? Suggest a pool name.
-3. What existing tasks might this relate to? Suggest 2-3 relationship types (blocks/enables/pairs_with/results_in) with brief reasoning.
+Generate ONE profound Socratic question that will help the user deeply understand:
+1. WHY this task truly matters (not surface reasons)
+2. HOW it connects to their bigger goals
+3. WHAT makes this the right thing to do NOW vs later
 
-Return a JSON object with keys: taskType ("wave" or "pool"), reasoning, suggestedPool, suggestedRelationships (array of {taskHint, relationshipType, reasoning}).`;
+The question should:
+- Be 1-2 sentences max
+- Make them think, not just answer
+- Feel like a wise mentor probing their true motivations
+- Be specific to this task's context (not generic)
+
+Return ONLY the question, no preamble.`;
 
       const response = await AICoachingService.askQuestion(prompt);
-      // Parse the JSON from the response
-      try {
-        const jsonMatch = response.match(/\{[\s\S]*\}/);
-        const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
-        setAiSuggestions(parsed || {
-          taskType: 'wave',
-          reasoning: 'Based on your answers, this seems like a standalone task.',
-          suggestedPool: null,
-          suggestedRelationships: []
-        });
-      } catch {
-        setAiSuggestions({
-          taskType: 'wave',
-          reasoning: 'Based on your answers, this seems like a standalone task.',
-          suggestedPool: null,
-          suggestedRelationships: []
-        });
-      }
-      setFocusPhase('associate');
+      setSocraticQuestion(response?.trim() || 'Why does this task truly matter to you right now?');
+      setFocusPhase('clarity');
     } catch {
-      setAiSuggestions({
-        taskType: 'wave',
-        reasoning: 'Could not analyze answers. Defaulting to Wave.',
-        suggestedPool: null,
-        suggestedRelationships: []
-      });
-      setFocusPhase('associate');
+      setSocraticQuestion('Why does this task truly matter to you right now?');
+      setFocusPhase('clarity');
     }
     setIsLoading(false);
   };
@@ -2171,25 +2138,9 @@ Return a JSON object with keys: taskType ("wave" or "pool"), reasoning, suggeste
   };
   const removeRelationship = (idx) => setFocusRelationships(prev => prev.filter((_, i) => i !== idx));
 
-  // Breadcrumb component — Socratic first
+  // Breadcrumb component
   const Breadcrumb = () => (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 24 }}>
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 6,
-        padding: '8px 14px',
-        borderRadius: 100,
-        backgroundColor: focusPhase === 'clarity' ? '#FF6B6B' : '#F4F4F5',
-        color: focusPhase === 'clarity' ? 'white' : '#71717A',
-        fontSize: 13,
-        fontWeight: 600,
-        transition: 'all .2s'
-      }}>
-        <span style={{ width: 20, height: 20, borderRadius: '50%', backgroundColor: focusPhase === 'clarity' ? 'white' : '#FF6B6B', color: focusPhase === 'clarity' ? '#FF6B6B' : 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>1</span>
-        Socratic Clarity
-      </div>
-      <div style={{ width: 32, height: 2, backgroundColor: focusPhase === 'associate' ? '#6366F1' : '#E4E4E7' }} />
       <div style={{
         display: 'flex',
         alignItems: 'center',
@@ -2202,8 +2153,24 @@ Return a JSON object with keys: taskType ("wave" or "pool"), reasoning, suggeste
         fontWeight: 600,
         transition: 'all .2s'
       }}>
-        <span style={{ width: 20, height: 20, borderRadius: '50%', backgroundColor: focusPhase === 'associate' ? 'white' : '#6366F1', color: focusPhase === 'associate' ? '#6366F1' : 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>2</span>
+        <span style={{ width: 20, height: 20, borderRadius: '50%', backgroundColor: focusPhase === 'associate' ? 'white' : '#6366F1', color: focusPhase === 'associate' ? '#6366F1' : 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>1</span>
         Associate
+      </div>
+      <div style={{ width: 32, height: 2, backgroundColor: focusPhase === 'clarity' ? '#6366F1' : '#E4E4E7' }} />
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: '8px 14px',
+        borderRadius: 100,
+        backgroundColor: focusPhase === 'clarity' ? '#FF6B6B' : '#F4F4F5',
+        color: focusPhase === 'clarity' ? 'white' : '#71717A',
+        fontSize: 13,
+        fontWeight: 600,
+        transition: 'all .2s'
+      }}>
+        <span style={{ width: 20, height: 20, borderRadius: '50%', backgroundColor: focusPhase === 'clarity' ? 'white' : '#FF6B6B', color: focusPhase === 'clarity' ? '#FF6B6B' : 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>2</span>
+        Socratic Clarity
       </div>
     </div>
   );
@@ -2211,8 +2178,8 @@ Return a JSON object with keys: taskType ("wave" or "pool"), reasoning, suggeste
   if (isLoading) return (
     <div style={styles.focusMode}>
       <Breadcrumb />
-      <div style={styles.focusHeader}><p style={styles.focusLabel}>Analyzing your reflections…</p><h3 style={styles.focusTask}>{task.content}</h3></div>
-      <div style={styles.loadingCard}><Icons.Loader className="w-8 h-8" /><p style={styles.loadingText}>AI is generating association suggestions…</p></div>
+      <div style={styles.focusHeader}><p style={styles.focusLabel}>Crafting your Socratic question…</p><h3 style={styles.focusTask}>{task.content}</h3></div>
+      <div style={styles.loadingCard}><Icons.Loader className="w-8 h-8" /><p style={styles.loadingText}>AI is analyzing your task context…</p></div>
     </div>
   );
 
@@ -2262,122 +2229,14 @@ Return a JSON object with keys: taskType ("wave" or "pool"), reasoning, suggeste
         )}
       </div>
 
-      {/* STEP 1: SOCRATIC CLARITY — 3 questions on one page, greyed until focused */}
-      {focusPhase === 'clarity' && (
-        <div style={{ ...styles.wizardCard, maxWidth: 560 }}>
-          <div style={{ textAlign: 'center', marginBottom: 20 }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', backgroundColor: '#FFF1F1', border: '1px solid #FECACA', borderRadius: 100, fontSize: 12, fontWeight: 600, color: '#FF6B6B' }}>
-              <Icons.Sparkles className="w-3.5 h-3.5" />
-              Socratic Clarity — 3 Reflections
-            </span>
-          </div>
-
-          <p style={{ fontSize: 14, color: '#71717A', marginBottom: 24, textAlign: 'center' }}>
-            Answer these 3 questions to understand what you're really doing. <br/>
-            <span style={{ fontSize: 12 }}>Each question unlocks as you focus on it.</span>
-          </p>
-
-          {/* 3 Socratic questions displayed together */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            {SOCRATIC_QUESTIONS.map((q, idx) => {
-              const isActive = activeQuestion === idx;
-              const isAnswered = wizardAnswers[q.key]?.length > 0;
-              return (
-                <div
-                  key={q.key}
-                  style={{
-                    padding: '16px 20px',
-                    borderRadius: 12,
-                    border: `2px solid ${isActive ? '#FF6B6B' : isAnswered ? '#10B981' : '#E4E4E7'}`,
-                    backgroundColor: isActive ? '#FFF9F9' : isAnswered ? '#F0FDF4' : '#FAFAFA',
-                    opacity: isActive || isAnswered ? 1 : 0.5,
-                    transition: 'all .2s',
-                    cursor: isActive ? 'default' : 'pointer'
-                  }}
-                  onClick={() => setActiveQuestion(idx)}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                    <span style={{
-                      width: 24, height: 24, borderRadius: '50%',
-                      backgroundColor: isActive ? '#FF6B6B' : isAnswered ? '#10B981' : '#D4D4D8',
-                      color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 12, fontWeight: 700
-                    }}>
-                      {isAnswered ? '✓' : idx + 1}
-                    </span>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: isActive ? '#FF6B6B' : isAnswered ? '#10B981' : '#71717A' }}>
-                      {q.purpose === 'purpose' && 'Purpose'}
-                      {q.purpose === 'approach' && 'Approach'}
-                      {q.purpose === 'urgency' && 'Urgency'}
-                    </span>
-                  </div>
-
-                  <h4 style={{ fontSize: 15, fontWeight: 600, color: '#18181B', marginBottom: 10, lineHeight: 1.4 }}>
-                    {q.question}
-                  </h4>
-
-                  <textarea
-                    placeholder={isActive ? q.placeholder : 'Click to focus and answer…'}
-                    value={wizardAnswers[q.key] || ''}
-                    onChange={e => setWizardAnswers(p => ({ ...p, [q.key]: e.target.value }))}
-                    onFocus={() => setActiveQuestion(idx)}
-                    disabled={!isActive}
-                    style={{
-                      ...styles.textarea,
-                      minHeight: 80,
-                      fontSize: 14,
-                      backgroundColor: isActive ? 'white' : '#F4F4F5',
-                      cursor: isActive ? 'text' : 'pointer'
-                    }}
-                  />
-                </div>
-              );
-            })}
-          </div>
-
-          <div style={{ display: 'flex', gap: 12, marginTop: 24 }}>
-            <button
-              style={{ ...styles.ghostBtn, flex: 1 }}
-              onClick={onSkipTask}
-            >
-              Skip for now
-            </button>
-            <button
-              style={{ ...styles.primaryBtn, flex: 2 }}
-              onClick={generateAISuggestions}
-              disabled={!wizardAnswers.why && !wizardAnswers.how && !wizardAnswers.now}
-            >
-              Continue to Associate
-              <Icons.ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* STEP 2: ASSOCIATE — AI suggestions + manual override */}
+      {/* STEP 1: ASSOCIATE — Type, Pool, Relationships */}
       {focusPhase === 'associate' && (
-        <div style={{ ...styles.wizardCard, maxWidth: 560 }}>
+        <div style={styles.wizardCard}>
           <p style={{ fontSize: 14, color: '#71717A', marginBottom: 16, textAlign: 'center' }}>
-            Based on your reflections, here are AI suggestions. Review and adjust as needed.
+            Where does this task live? Connect it to see the bigger picture.
           </p>
 
-          {/* AI Suggestions Panel */}
-          {aiSuggestions && (
-            <div style={{ marginBottom: 20, padding: 16, backgroundColor: '#F5F3FF', borderRadius: 12, border: '1px solid #DDD6FE' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, fontSize: 13, fontWeight: 600, color: '#6366F1' }}>
-                <Icons.Sparkles className="w-4 h-4" />
-                AI Suggestion
-              </div>
-              <p style={{ fontSize: 13, color: '#4C1D95', marginBottom: 12 }}>{aiSuggestions.reasoning}</p>
-              {aiSuggestions.suggestedPool && (
-                <div style={{ fontSize: 12, color: '#6D28D9', padding: '6px 10px', backgroundColor: '#EDE9FE', borderRadius: 6, marginBottom: 8 }}>
-                  Suggested Pool: <strong>{aiSuggestions.suggestedPool}</strong>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Type selection — pre-selected if AI suggested */}
+          {/* Type selection */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
             {[
               { key: 'wave', label: '⚡ Wave', desc: 'Standalone — quick task or note', color: '#10B981' },
@@ -2389,7 +2248,6 @@ Return a JSON object with keys: taskType ("wave" or "pool"), reasoning, suggeste
                   <div style={{ fontWeight: 600, fontSize: 15, color: focusTaskType === opt.key ? opt.color : '#18181B' }}>{opt.label}</div>
                   <div style={{ fontSize: 13, color: '#71717A', marginTop: 2 }}>{opt.desc}</div>
                 </div>
-                {aiSuggestions?.taskType === opt.key && <span style={{ fontSize: 11, color: opt.color, fontWeight: 600 }}>AI Pick</span>}
               </label>
             ))}
           </div>
@@ -2414,119 +2272,20 @@ Return a JSON object with keys: taskType ("wave" or "pool"), reasoning, suggeste
                     />
                   </div>
 
-                  {/* Recurring toggle + type-specific blocks (ERR-032 FIX) */}
+                  {/* Recurring toggle */}
                   <div style={{ marginTop: 16, padding: 12, backgroundColor: '#F0F9FF', borderRadius: 10, border: '1px solid #BAE6FD' }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
                       <input type="checkbox" checked={focusRecurringEnabled} onChange={e => setFocusRecurringEnabled(e.target.checked)} />
                       Make this recurring
                     </label>
                     {focusRecurringEnabled && (
-                      <>
-                        <select
-                          value={focusRecurrence.type}
-                          onChange={e => setFocusRecurrence(p => ({ ...p, type: e.target.value }))}
-                          style={{ ...styles.input, marginTop: 10, marginBottom: 12, fontSize: 13 }}
-                        >
-                          {RECURRENCE_TYPES.map(rt => <option key={rt.key} value={rt.key}>{rt.label}</option>)}
-                        </select>
-
-                        {/* Type-specific blocks based on recurrence type */}
-                        {focusRecurrence.type === 'specific_days' && (
-                          <div style={{ marginBottom: 12 }}>
-                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                              {WEEK_DAYS.map((d, i) => (
-                                <button
-                                  key={i}
-                                  onClick={() => setFocusRecurrence(p => ({ ...p, weekDays: p.weekDays.includes(i) ? p.weekDays.filter(x => x !== i) : [...p.weekDays, i] }))}
-                                  style={{ ...styles.weekDayBtn, ...(focusRecurrence.weekDays.includes(i) ? styles.weekDayBtnActive : {}) }}
-                                >
-                                  {d}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {focusRecurrence.type === 'every_n' && (
-                          <div style={{ marginBottom: 12 }}>
-                            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-                              <span style={{ fontSize: 13 }}>Every</span>
-                              <input
-                                type="number"
-                                min="1"
-                                max="365"
-                                value={focusRecurrence.everyN}
-                                onChange={e => setFocusRecurrence(p => ({ ...p, everyN: parseInt(e.target.value, 10) || 1 }))}
-                                style={{ ...styles.input, width: 70, fontSize: 13 }}
-                              />
-                              <select
-                                value={focusRecurrence.unit}
-                                onChange={e => setFocusRecurrence(p => ({ ...p, unit: e.target.value }))}
-                                style={{ ...styles.input, width: 90, fontSize: 13 }}
-                              >
-                                <option value="days">Days</option>
-                                <option value="weeks">Weeks</option>
-                              </select>
-                            </div>
-                            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                              <span style={{ fontSize: 13 }}>Starting</span>
-                              <input
-                                type="date"
-                                value={focusRecurrence.startDate}
-                                onChange={e => setFocusRecurrence(p => ({ ...p, startDate: e.target.value }))}
-                                style={{ ...styles.input, width: 130, fontSize: 13 }}
-                              />
-                            </div>
-                          </div>
-                        )}
-
-                        {focusRecurrence.type === 'monthly_frequency' && (
-                          <div style={{ marginBottom: 12 }}>
-                            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                              <input
-                                type="number"
-                                min="1"
-                                max="31"
-                                value={focusRecurrence.frequency}
-                                onChange={e => setFocusRecurrence(p => ({ ...p, frequency: parseInt(e.target.value, 10) || 1 }))}
-                                style={{ ...styles.input, width: 70, fontSize: 13 }}
-                              />
-                              <span style={{ fontSize: 13 }}>times per month</span>
-                            </div>
-                          </div>
-                        )}
-
-                        {focusRecurrence.type === 'annual' && (
-                          <div style={{ marginBottom: 12 }}>
-                            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                              <span style={{ fontSize: 13 }}>Month / Day</span>
-                              <input
-                                type="text"
-                                placeholder="MM-DD"
-                                value={focusRecurrence.annualMonthDay}
-                                onChange={e => {
-                                  const value = e.target.value;
-                                  // Allow only numbers and dash, format as MM-DD
-                                  const cleaned = value.replace(/[^0-9-]/g, '');
-                                  if (cleaned.length <= 5) {
-                                    setFocusRecurrence(p => ({ ...p, annualMonthDay: cleaned }));
-                                  }
-                                }}
-                                onBlur={e => {
-                                  // Auto-format on blur: 0501 -> 05-01
-                                  const value = e.target.value.replace(/-/g, '');
-                                  if (value.length === 4) {
-                                    const formatted = `${value.slice(0, 2)}-${value.slice(2)}`;
-                                    setFocusRecurrence(p => ({ ...p, annualMonthDay: formatted }));
-                                  }
-                                }}
-                                style={{ ...styles.input, width: 80, fontSize: 13 }}
-                              />
-                              <span style={{ fontSize: 12, color: '#9CA3AF' }}>e.g., 01-25</span>
-                            </div>
-                          </div>
-                        )}
-                      </>
+                      <select
+                        value={focusRecurrence.type}
+                        onChange={e => setFocusRecurrence(p => ({ ...p, type: e.target.value }))}
+                        style={{ ...styles.input, marginTop: 10, fontSize: 13 }}
+                      >
+                        {RECURRENCE_TYPES.map(rt => <option key={rt.key} value={rt.key}>{rt.label}</option>)}
+                      </select>
                     )}
                   </div>
                 </>
@@ -2534,18 +2293,64 @@ Return a JSON object with keys: taskType ("wave" or "pool"), reasoning, suggeste
             </div>
           )}
 
+          {/* Generate Socratic Question button */}
+          <button
+            style={{ ...styles.primaryBtn, width: '100%', padding: '14px 24px', fontSize: 15 }}
+            onClick={generateSocraticQuestion}
+            disabled={focusTaskType === 'pool' && !focusPoolId}
+          >
+            <Icons.Sparkles className="w-4 h-4" />
+            Generate Socratic Question →
+          </button>
+          {focusTaskType === 'pool' && !focusPoolId && (
+            <p style={{ fontSize: 12, color: '#9CA3AF', textAlign: 'center', marginTop: 8 }}>Select a Task Graph first</p>
+          )}
+        </div>
+      )}
+
+      {/* STEP 2: SOCRATIC CLARITY — One intelligent question */}
+      {focusPhase === 'clarity' && socraticQuestion && (
+        <div style={styles.wizardCard}>
+          <div style={{ textAlign: 'center', marginBottom: 20 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', backgroundColor: '#FFF1F1', border: '1px solid #FECACA', borderRadius: 100, fontSize: 12, fontWeight: 600, color: '#FF6B6B' }}>
+              <Icons.Sparkles className="w-3.5 h-3.5" />
+              Socratic Clarity
+            </span>
+          </div>
+
+          <h4 style={{ ...styles.wizardQuestion, fontSize: 18, lineHeight: 1.5, marginBottom: 20 }}>{socraticQuestion}</h4>
+
+          <textarea
+            placeholder="Your reflection… (Ctrl+Enter to finish)"
+            value={socraticAnswer}
+            onChange={e => setSocraticAnswer(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                // Save and finish
+                setWizardAnswers({ socratic: socraticAnswer, question: socraticQuestion });
+                onFinish();
+              }
+            }}
+            style={{ ...styles.textarea, minHeight: 120, fontSize: 15 }}
+            autoFocus
+          />
+
+          <p style={{ fontSize: 12, color: '#9CA3AF', marginTop: 8, marginBottom: 20 }}>Optional — but powerful · Ctrl+Enter to finish</p>
+
           <div style={{ display: 'flex', gap: 12 }}>
             <button
               style={{ ...styles.ghostBtn, flex: 1 }}
-              onClick={() => setFocusPhase('clarity')}
+              onClick={() => setFocusPhase('associate')}
             >
               <Icons.ArrowLeft className="w-4 h-4" />
-              Back to Socratic
+              Back to Associate
             </button>
             <button
               style={{ ...styles.primaryBtn, flex: 2 }}
-              onClick={onFinish}
-              disabled={focusTaskType === 'pool' && !focusPoolId}
+              onClick={() => {
+                setWizardAnswers({ socratic: socraticAnswer, question: socraticQuestion });
+                onFinish();
+              }}
             >
               Finish & Go to Work
               <Icons.ChevronRight className="w-4 h-4" />
@@ -2554,7 +2359,7 @@ Return a JSON object with keys: taskType ("wave" or "pool"), reasoning, suggeste
         </div>
       )}
 
-      {onSkipTask && focusPhase === 'clarity' && (
+      {onSkipTask && (
         <div style={styles.skipSection}><button style={styles.linkBtn} onClick={onSkipTask}>Skip this task for now</button></div>
       )}
     </div>
@@ -3058,68 +2863,17 @@ function WorkMode({
   // Waves = tasks not in any Pool or Pod
   const waveTasks = pendingTasks.filter(t => !(t.poolIds?.length));
 
-  // FEAT-038/039: ADHD-Friendly Kanban categorization with manual override support
-  const categorizeForKanban = (task) => {
-    // FEAT-039: Check for manual override first
-    if (task.manualPosition?.kanbanLane) {
-      return task.manualPosition.kanbanLane;
-    }
-    
-    const hasSocraticAnswers = task.reflection?.why || task.reflection?.how || task.reflection?.now || 
-                                (task.reflection?.socratic && task.reflection?.question);
-    const hasDeadline = task.reflection?.deadline && task.reflection.deadline !== '-' && task.reflection.deadline.trim() !== '';
-    const hasRecurrence = task.recurrenceEnabled && task.recurrence;
-    const hasTimerActivity = timers[task.id] && (timers[task.id].accumulated > 0 || timers[task.id].startTime);
-    
-    // Check if task has blocker/enabler relationships
-    const pool = task.poolIds?.length ? pools.find(p => p.id === task.poolIds[0]) : null;
-    const relationships = pool?.relationships?.filter(r => r.fromTaskId === task.id || r.toTaskId === task.id) || [];
-    const isBlockerOrEnabler = relationships.some(r => r.type === 'blocks' || r.type === 'enables');
-    
-    // Check for inactivity (10+ days = Paused)
-    const tenDaysMs = 10 * 24 * 60 * 60 * 1000;
-    const lastActive = task.updatedAt || task.createdAt || Date.now();
-    const isInactive = (Date.now() - lastActive) > tenDaysMs;
-    const hasNoTimerRecently = !timers[task.id] || !timers[task.id].startTime || 
-                               (Date.now() - timers[task.id].startTime > tenDaysMs);
-    
-    // TODAY: Recurring, has Socratic answers, or is blocker/enabler
-    if (hasRecurrence || (hasSocraticAnswers && isBlockerOrEnabler)) {
-      return 'today';
-    }
-    
-    // PAUSED: Inactive for 10+ days with no recent timer activity
-    if (isInactive && hasNoTimerRecently) {
-      return 'paused';
-    }
-    
-    // If task hasn't been through Focus (no reflection at all), it goes to Waitlist
-    if (!task.reflection && !hasSocraticAnswers) {
-      return 'waitlist';
-    }
-    
-    // NEXT: Has Socratic answers AND has timeline/deadline
-    if (hasSocraticAnswers && hasDeadline) {
-      return 'next';
-    }
-    
-    // WAITLIST: Has Socratic answers but no work started (no timer) or no deadline
-    if (hasSocraticAnswers && (!hasTimerActivity || !hasDeadline)) {
-      return 'waitlist';
-    }
-    
-    // Default to waitlist
-    return 'waitlist';
+  const categorizeByDeadline = (task) => {
+    const deadline = task.reflection?.deadline?.toLowerCase() || '';
+    if (!deadline || deadline === '-') return 'notplanned';
+    if (/\b(today|tonight|now|asap|urgent)\b/.test(deadline)) return 'today';
+    if (/\b(tomorrow|next|week|month|later|soon|eventually)\b/.test(deadline)) return 'future';
+    if (/\b(yesterday|overdue|late|missed|past|ago)\b/.test(deadline)) return 'missed';
+    return 'notplanned';
   };
 
-  // ADHD-Friendly Kanban lanes: Today, Next, Waitlist, Paused
-  const kanbanLanes = { 
-    today: { title: 'Today', color: '#FF6B6B', tasks: [], subtitle: 'Do now' }, 
-    next: { title: 'Next', color: '#3B82F6', tasks: [], subtitle: 'Qualified & timed' }, 
-    waitlist: { title: 'Waitlist', color: '#A855F7', tasks: [], subtitle: 'Qualified, not started' }, 
-    paused: { title: 'Paused', color: '#9CA3AF', tasks: [], subtitle: '10+ days inactive' } 
-  };
-  waveTasks.forEach(t => kanbanLanes[categorizeForKanban(t)].tasks.push(t));
+  const kanbanLanes = { today: { title: 'Today', color: '#FF6B6B', tasks: [] }, future: { title: 'Future', color: '#4299E1', tasks: [] }, missed: { title: 'Missed', color: '#F59E0B', tasks: [] }, notplanned: { title: 'Not Planned', color: '#A1A1AA', tasks: [] } };
+  waveTasks.forEach(t => kanbanLanes[categorizeByDeadline(t)].tasks.push(t));
 
   // Focus button component
   const FocusBtn = ({ taskId }) => (
@@ -3182,8 +2936,8 @@ function WorkMode({
     });
   };
 
-  // TaskCard component with all reflection answers — FEAT-039: draggable
-  const TaskCard = ({ task, compact = false, showPoolInfo = true, draggable = false, onDragStart, onDragEnd }) => {
+  // TaskCard component with all reflection answers
+  const TaskCard = ({ task, compact = false, showPoolInfo = true }) => {
     const elapsed = getElapsedSeconds(task.id);
     const running = isTimerRunning(task.id);
     const paused = isTimerPaused(task.id);
@@ -3191,7 +2945,6 @@ function WorkMode({
     const relationships = getTaskRelationships(task);
     const blockedBy = isTaskBlocked(task);
     const isBlocked = !!blockedBy;
-    const [isDragging, setIsDragging] = useState(false);
 
     // Get all reflection answers as bullets
     const getReasonToDo = () => {
@@ -3437,20 +3190,6 @@ function WorkMode({
     );
   };
 
-  // FEAT-039: Draggable TaskCard wrapper for Kanban
-  const DraggableTaskCard = ({ task, compact, showPoolInfo, dragType }) => {
-    const handleDragStart = (e) => {
-      e.dataTransfer.setData('application/json', JSON.stringify({ taskId: task.id, dragType }));
-      e.dataTransfer.effectAllowed = 'move';
-    };
-
-    return (
-      <div draggable onDragStart={handleDragStart} style={{ cursor: 'grab' }}>
-        <TaskCard task={task} compact={compact} showPoolInfo={showPoolInfo} />
-      </div>
-    );
-  };
-
   // List Waves View (default view)
   const ListWavesView = () => {
     const sorted = sortTasksByRelationship(waveTasks);
@@ -3465,65 +3204,21 @@ function WorkMode({
     );
   };
 
-  // FEAT-039: KanbanView with drag-and-drop support
-  const KanbanView = () => {
-    const [dragOverLane, setDragOverLane] = useState(null);
-
-    const handleDragOver = (e, laneKey) => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      setDragOverLane(laneKey);
-    };
-
-    const handleDragLeave = (e) => {
-      setDragOverLane(null);
-    };
-
-    const handleDrop = (e, laneKey) => {
-      e.preventDefault();
-      setDragOverLane(null);
-      const data = JSON.parse(e.dataTransfer.getData('application/json') || '{}');
-      if (data.taskId) {
-        // Update manual position for the task
-        updateTaskManualPosition(data.taskId, 'kanbanLane', laneKey);
-      }
-    };
-
-    return (
-      <div style={styles.kanbanContainer}>
-        {Object.entries(kanbanLanes).map(([key, lane]) => (
-          <div 
-            key={key} 
-            style={{
-              ...styles.kanbanLane,
-              ...(dragOverLane === key ? { boxShadow: `0 0 0 3px ${lane.color}50`, backgroundColor: `${lane.color}08` } : {})
-            }}
-            onDragOver={(e) => handleDragOver(e, key)}
-            onDragLeave={handleDragLeave}
-            onDrop={(e) => handleDrop(e, key)}
-          >
-            <div style={{ ...styles.kanbanLaneHeader, borderTopColor: lane.color }}>
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <span style={styles.kanbanLaneTitle}>{lane.title}</span>
-                <span style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }}>{lane.subtitle}</span>
-              </div>
-              <span style={{ ...styles.kanbanLaneCount, backgroundColor: lane.color }}>{lane.tasks.length}</span>
-            </div>
-            <div style={styles.kanbanLaneBody}>
-              {lane.tasks.length === 0 ? (
-                <div style={{ ...styles.kanbanEmpty, opacity: dragOverLane === key ? 0.5 : 1 }}>
-                  {key === 'today' && 'No urgent tasks'}
-                  {key === 'next' && 'No timed tasks'}
-                  {key === 'waitlist' && 'No qualified tasks — use Focus Mode'}
-                  {key === 'paused' && 'No stale tasks'}
-                </div>
-              ) : lane.tasks.map(t => <DraggableTaskCard key={t.id} task={t} compact dragType="kanban" />)}
-            </div>
+  const KanbanView = () => (
+    <div style={styles.kanbanContainer}>
+      {Object.entries(kanbanLanes).map(([key, lane]) => (
+        <div key={key} style={styles.kanbanLane}>
+          <div style={{ ...styles.kanbanLaneHeader, borderTopColor: lane.color }}>
+            <span style={styles.kanbanLaneTitle}>{lane.title}</span>
+            <span style={{ ...styles.kanbanLaneCount, backgroundColor: lane.color }}>{lane.tasks.length}</span>
           </div>
-        ))}
-      </div>
-    );
-  };
+          <div style={styles.kanbanLaneBody}>
+            {lane.tasks.length === 0 ? <div style={styles.kanbanEmpty}>No waves</div> : lane.tasks.map(t => <TaskCard key={t.id} task={t} compact />)}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 
   // Pool View — supports all four strategy views
   const PoolView = () => {
@@ -3531,14 +3226,9 @@ function WorkMode({
     const poolTasks = pendingTasks.filter(t => (t.poolIds || []).includes(selectedPoolId));
     const poolRels = (pool?.relationships || []);
 
-    // ── ADHD-Friendly Kanban lanes for pool tasks — same categorization as waves ──
-    const poolKanbanLanes = { 
-      today: { title: 'Today', color: '#FF6B6B', tasks: [], subtitle: 'Do now' }, 
-      next: { title: 'Next', color: '#3B82F6', tasks: [], subtitle: 'Qualified & timed' }, 
-      waitlist: { title: 'Waitlist', color: '#A855F7', tasks: [], subtitle: 'Qualified, not started' }, 
-      paused: { title: 'Paused', color: '#9CA3AF', tasks: [], subtitle: '10+ days inactive' } 
-    };
-    poolTasks.forEach(t => poolKanbanLanes[categorizeForKanban(t)].tasks.push(t));
+    // ── Kanban lanes for pool tasks — apply rel sort within each lane ──
+    const poolKanbanLanes = { today: { title: 'Today', color: '#FF6B6B', tasks: [] }, future: { title: 'Future', color: '#4299E1', tasks: [] }, missed: { title: 'Missed', color: '#F59E0B', tasks: [] }, notplanned: { title: 'Not Planned', color: '#A1A1AA', tasks: [] } };
+    poolTasks.forEach(t => poolKanbanLanes[categorizeByDeadline(t)].tasks.push(t));
     Object.values(poolKanbanLanes).forEach(lane => { lane.tasks = sortTasksByRelationship(lane.tasks); });
 
     // ── DailyZen scoring for pool tasks ──
@@ -3552,13 +3242,8 @@ function WorkMode({
       return score;
     };
 
-    // ── WorkIQ classification for pool tasks with manual override ──
+    // ── WorkIQ classification for pool tasks ──
     const classifyPoolTask = (task) => {
-      // FEAT-039: Check for manual quadrant override first
-      if (task.manualPosition?.workIQQuadrant) {
-        return task.manualPosition.workIQQuadrant;
-      }
-      
       const text = ((task.content || '') + ' ' + (task.reflection?.deadline || '') + ' ' + (task.reflection?.motivation || '') + ' ' + (task.reflection?.complexity || '') + ' ' + (task.reflection?.outcome || '')).toLowerCase();
       const urgentSignals   = /urgent|asap|today|tonight|deadline|now|must|blocking|waiting|client|boss|critical/.test(text);
       const familiarSignals = /routine|regular|standard|usual|same|again|normal|everyday|process|procedure|update|review|check/.test(text);
@@ -3615,162 +3300,60 @@ function WorkMode({
       </>
     );
 
-    // ── KANBAN strategy with drag-and-drop ──
-    if (poolStrategyView === 'kanban') {
-      const [dragOverLane, setDragOverLane] = useState(null);
-
-      const handleDragOver = (e, laneKey) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        setDragOverLane(laneKey);
-      };
-
-      const handleDragLeave = () => setDragOverLane(null);
-
-      const handleDrop = (e, laneKey) => {
-        e.preventDefault();
-        setDragOverLane(null);
-        const data = JSON.parse(e.dataTransfer.getData('application/json') || '{}');
-        if (data.taskId) {
-          updateTaskManualPosition(data.taskId, 'kanbanLane', laneKey);
-        }
-      };
-
-      return (
-        <>
-          <PoolHeader />
-          <div style={styles.kanbanContainer}>
-            {Object.entries(poolKanbanLanes).map(([key, lane]) => (
-              <div 
-                key={key} 
-                style={{
-                  ...styles.kanbanLane,
-                  ...(dragOverLane === key ? { boxShadow: `0 0 0 3px ${lane.color}50`, backgroundColor: `${lane.color}08` } : {})
-                }}
-                onDragOver={(e) => handleDragOver(e, key)}
-                onDragLeave={handleDragLeave}
-                onDrop={(e) => handleDrop(e, key)}
-              >
-                <div style={{ ...styles.kanbanLaneHeader, borderTopColor: lane.color }}>
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <span style={styles.kanbanLaneTitle}>{lane.title}</span>
-                    <span style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }}>{lane.subtitle}</span>
-                  </div>
-                  <span style={{ ...styles.kanbanLaneCount, backgroundColor: lane.color }}>{lane.tasks.length}</span>
-                </div>
-                <div style={styles.kanbanLaneBody}>
-                  {lane.tasks.length === 0 ? (
-                    <div style={{ ...styles.kanbanEmpty, opacity: dragOverLane === key ? 0.5 : 1 }}>
-                      {key === 'today' && 'No urgent tasks'}
-                      {key === 'next' && 'No timed tasks'}
-                      {key === 'waitlist' && 'No qualified tasks — use Focus Mode'}
-                      {key === 'paused' && 'No stale tasks'}
-                    </div>
-                  ) : lane.tasks.map(t => <DraggableTaskCard key={t.id} task={t} compact dragType="kanban" />)}
-                </div>
+    // ── KANBAN strategy ──
+    if (poolStrategyView === 'kanban') return (
+      <>
+        <PoolHeader />
+        <div style={styles.kanbanContainer}>
+          {Object.entries(poolKanbanLanes).map(([key, lane]) => (
+            <div key={key} style={styles.kanbanLane}>
+              <div style={{ ...styles.kanbanLaneHeader, borderTopColor: lane.color }}>
+                <span style={styles.kanbanLaneTitle}>{lane.title}</span>
+                <span style={{ ...styles.kanbanLaneCount, backgroundColor: lane.color }}>{lane.tasks.length}</span>
               </div>
-            ))}
-          </div>
-        </>
-      );
-    }
+              <div style={styles.kanbanLaneBody}>
+                {lane.tasks.length === 0 ? <div style={styles.kanbanEmpty}>No tasks</div> : lane.tasks.map(t => <TaskCard key={t.id} task={t} compact />)}
+              </div>
+            </div>
+          ))}
+        </div>
+      </>
+    );
 
-    // ── DAILYZEN strategy with drag-and-drop ──
+    // ── DAILYZEN strategy ──
     if (poolStrategyView === 'dailyzen') {
-      const [dragOverZone, setDragOverZone] = useState(null);
-
-      // FEAT-039: Support manual zone override via manualPosition
-      const getTaskZone = (task) => task.manualPosition?.dailyZenZone || null;
-
-      const handleDragOver = (e, zoneKey) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        setDragOverZone(zoneKey);
-      };
-
-      const handleDragLeave = () => setDragOverZone(null);
-
-      const handleDrop = (e, zoneKey) => {
-        e.preventDefault();
-        setDragOverZone(null);
-        const data = JSON.parse(e.dataTransfer.getData('application/json') || '{}');
-        if (data.taskId) {
-          updateTaskManualPosition(data.taskId, 'dailyZenZone', zoneKey);
-        }
-      };
-
-      // If user has manually assigned zones, use those; otherwise use AI scoring
-      const deepWork  = poolTasks.filter(t => getTaskZone(t) === 'deep') || [...poolTasks].sort((a, b) => scorePoolTask(b) - scorePoolTask(a)).slice(0, 1);
-      const necessity = poolTasks.filter(t => getTaskZone(t) === 'necessity') || [...poolTasks].sort((a, b) => scorePoolTask(b) - scorePoolTask(a)).slice(1, 4);
-      const lightenUp = poolTasks.filter(t => getTaskZone(t) === 'light') || [...poolTasks].sort((a, b) => scorePoolTask(b) - scorePoolTask(a)).slice(4, 9);
-      
-      const DZSection = ({ title, emoji, color, bgColor, tasks, limit, hint, zoneKey }) => {
-        const isDragOver = dragOverZone === zoneKey;
-        return (
-          <div 
-            style={{ 
-              backgroundColor: isDragOver ? `${color}30` : bgColor, 
-              borderRadius: 12, 
-              padding: 16, 
-              borderLeft: `4px solid ${color}`, 
-              border: isDragOver ? `2px dashed ${color}` : 'none',
-              marginBottom: 16,
-              transition: 'all 0.2s'
-            }}
-            onDragOver={(e) => handleDragOver(e, zoneKey)}
-            onDragLeave={handleDragLeave}
-            onDrop={(e) => handleDrop(e, zoneKey)}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-              <span style={{ fontSize: 22 }}>{emoji}</span>
-              <div style={{ flex: 1 }}><div style={{ fontSize: 14, fontWeight: 700, color: '#18181B' }}>{title}</div><div style={{ fontSize: 11, color: '#71717A' }}>{hint}</div></div>
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'white', backgroundColor: color, padding: '2px 10px', borderRadius: 100 }}>{tasks.length}/{limit}</span>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
-              {tasks.length === 0 ? (
-                <div style={{ fontSize: 13, color: '#A1A1AA', fontStyle: 'italic', opacity: isDragOver ? 0.5 : 1 }}>
-                  {isDragOver ? 'Drop here' : 'Nothing here'}
-                </div>
-              ) : tasks.map(t => <DraggableTaskCard key={t.id} task={t} dragType="dailyzen" />)}
-            </div>
+      const sorted = [...poolTasks].sort((a, b) => scorePoolTask(b) - scorePoolTask(a));
+      const deepWork  = sorted.slice(0, 1);
+      const necessity = sorted.slice(1, 4);
+      const lightenUp = sorted.slice(4, 9);
+      const DZSection = ({ title, emoji, color, bgColor, tasks, limit, hint }) => (
+        <div style={{ backgroundColor: bgColor, borderRadius: 12, padding: 16, borderLeft: `4px solid ${color}`, marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+            <span style={{ fontSize: 22 }}>{emoji}</span>
+            <div style={{ flex: 1 }}><div style={{ fontSize: 14, fontWeight: 700, color: '#18181B' }}>{title}</div><div style={{ fontSize: 11, color: '#71717A' }}>{hint}</div></div>
+            <span style={{ fontSize: 11, fontWeight: 700, color: 'white', backgroundColor: color, padding: '2px 10px', borderRadius: 100 }}>{tasks.length}/{limit}</span>
           </div>
-        );
-      };
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+            {tasks.length === 0 ? <div style={{ fontSize: 13, color: '#A1A1AA', fontStyle: 'italic' }}>Nothing here</div> : tasks.map(t => <TaskCard key={t.id} task={t} />)}
+          </div>
+        </div>
+      );
       return (
         <>
           <PoolHeader />
           <div style={{ backgroundColor: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#92400E' }}>
-            ✨ <strong>DailyZen</strong> · Drag tasks between zones to reschedule · AI suggests, you decide.
+            ✨ <strong>DailyZen</strong> · AI picks focus from <strong>{pool.name}</strong> Task Graph — 1 deep, 3 necessity, 5 light.
           </div>
           {poolTasks.length === 0
             ? <EmptyState icon={<Icons.Layers className="w-8 h-8" />} message="No tasks in this pool yet." />
-            : <><DZSection title="Deep Work" emoji="🧠" color="#6366F1" bgColor="#F5F3FF" tasks={deepWork} limit={1} hint="One task that demands full attention" zoneKey="deep" /><DZSection title="Necessity" emoji="⚡" color="#F59E0B" bgColor="#FFFBEB" tasks={necessity} limit={3} hint="Three things to move forward today" zoneKey="necessity" /><DZSection title="Lighten Up" emoji="🌊" color="#10B981" bgColor="#F0FDF4" tasks={lightenUp} limit={5} hint="Five easier tasks to keep momentum" zoneKey="light" /></>
+            : <><DZSection title="Deep Work" emoji="🧠" color="#6366F1" bgColor="#F5F3FF" tasks={deepWork} limit={1} hint="One task that demands full attention" /><DZSection title="Necessity" emoji="⚡" color="#F59E0B" bgColor="#FFFBEB" tasks={necessity} limit={3} hint="Three things to move forward today" /><DZSection title="Lighten Up" emoji="🌊" color="#10B981" bgColor="#F0FDF4" tasks={lightenUp} limit={5} hint="Five easier tasks to keep momentum" /></>
           }
         </>
       );
     }
 
-    // ── WORKIQ 4×4 strategy with drag-and-drop ──
+    // ── WORKIQ 4×4 strategy ──
     if (poolStrategyView === 'workiq') {
-      const [dragOverQuad, setDragOverQuad] = useState(null);
-
-      const handleDragOver = (e, quadKey) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        setDragOverQuad(quadKey);
-      };
-
-      const handleDragLeave = () => setDragOverQuad(null);
-
-      const handleDrop = (e, quadKey) => {
-        e.preventDefault();
-        setDragOverQuad(null);
-        const data = JSON.parse(e.dataTransfer.getData('application/json') || '{}');
-        if (data.taskId) {
-          updateTaskManualPosition(data.taskId, 'workIQQuadrant', quadKey);
-        }
-      };
-
       const quadrants = {
         q1: { tasks: [], color: '#10B981', bg: '#F0FDF4', label: 'Standard Work',      sub: 'Work that I am good at',                    emoji: '✅' },
         q2: { tasks: [], color: '#6366F1', bg: '#F5F3FF', label: 'Mindful Work',        sub: 'Work I want to do & need support',           emoji: '🧘' },
@@ -3778,37 +3361,17 @@ function WorkMode({
         q4: { tasks: [], color: '#EF4444', bg: '#FEF2F2', label: 'Needs Replacement',   sub: 'Work I am not good at — find someone',      emoji: '🔄' },
       };
       poolTasks.forEach(t => quadrants[classifyPoolTask(t)].tasks.push(t));
-      
       const QCell = ({ qKey }) => {
         const q = quadrants[qKey];
-        const isDragOver = dragOverQuad === qKey;
         return (
-          <div 
-            style={{ 
-              backgroundColor: isDragOver ? `${q.color}20` : q.bg, 
-              borderRadius: 12, 
-              padding: 14, 
-              border: isDragOver ? `3px dashed ${q.color}` : `2px solid ${q.color}30`, 
-              minHeight: 180, 
-              display: 'flex', 
-              flexDirection: 'column',
-              transition: 'all 0.2s'
-            }}
-            onDragOver={(e) => handleDragOver(e, qKey)}
-            onDragLeave={handleDragLeave}
-            onDrop={(e) => handleDrop(e, qKey)}
-          >
+          <div style={{ backgroundColor: q.bg, borderRadius: 12, padding: 14, border: `2px solid ${q.color}30`, minHeight: 180, display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, borderBottom: `1px solid ${q.color}30`, paddingBottom: 8 }}>
               <span style={{ fontSize: 18 }}>{q.emoji}</span>
               <div><div style={{ fontSize: 13, fontWeight: 700, color: q.color }}>{q.label}</div><div style={{ fontSize: 11, color: '#71717A', lineHeight: 1.3 }}>{q.sub}</div></div>
               <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, backgroundColor: q.color, color: 'white', borderRadius: 100, padding: '2px 8px' }}>{q.tasks.length}</span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1, overflowY: 'auto', maxHeight: 260 }}>
-              {q.tasks.length === 0 ? (
-                <div style={{ fontSize: 12, color: '#A1A1AA', fontStyle: 'italic', marginTop: 8, opacity: isDragOver ? 0.5 : 1 }}>
-                  {isDragOver ? 'Drop here' : 'No tasks here'}
-                </div>
-              ) : q.tasks.map(t => <DraggableTaskCard key={t.id} task={t} compact dragType="workiq" />)}
+              {q.tasks.length === 0 ? <div style={{ fontSize: 12, color: '#A1A1AA', fontStyle: 'italic', marginTop: 8 }}>No tasks here</div> : q.tasks.map(t => <TaskCard key={t.id} task={t} compact />)}
             </div>
           </div>
         );
@@ -3817,7 +3380,7 @@ function WorkMode({
         <>
           <PoolHeader />
           <div style={{ backgroundColor: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#0369A1' }}>
-            🧩 <strong>WorkIQ 4×4</strong> · Drag tasks between quadrants to reclassify · AI suggests, you decide.
+            🧩 <strong>WorkIQ 4×4</strong> · AI slots <strong>{pool.name}</strong> tasks by familiarity &amp; intent.
           </div>
           {poolTasks.length === 0
             ? <EmptyState icon={<Icons.Layers className="w-8 h-8" />} message="No tasks in this pool yet." />

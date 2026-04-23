@@ -15,7 +15,10 @@
 | DEBUG_MODE timing overlays | ❌ | ✅ per-view ms, colour-coded |
 | Data seeder (SeederPanel) | ❌ | ✅ 550+ tasks, 500 reviews |
 | Auth system (login/signup) | ✅ | ❌ |
+| Auth session persistence (`ot2_user`) | ✅ | ❌ |
 | Timer localStorage persistence | ✅ | ❌ (timers reset on reload) |
+| Inline hero banner (FEAT-028) | ✅ | ❌ |
+| CTA hidden when authenticated (FEAT-031) | ✅ | ❌ |
 
 ---
 
@@ -100,7 +103,8 @@
 3. **Add Review rating distribution chart to v3** — nice visual
 4. **Add useMemo to v3 derived state** — minor perf win
 5. **Add Pool/Pod sub-UI to StressTest Focus Mode** — so both show full Pool/Pod creation
+6. **Implement AI Architect toggle in Freedom Mode (FEAT-033)** — hook users on the magic of AI-generated Task Graphs
 
 ---
 
-_Last updated: 2026-04-05_
+_Last updated: 2026-04-23_

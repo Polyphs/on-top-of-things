@@ -1,7 +1,291 @@
 # OT² Feature Update Tracker
 
 > Format: Each entry has a status badge — `[PLANNED]` · `[IN PROGRESS]` · `[DEV COMPLETE]` · `[VERIFIED]`
-> Baseline: **2026-W16-1** · Last updated: 2026-04-11
+> Baseline: **2026-W17-1** · Last updated: 2026-04-23 · FEAT-039 DEV COMPLETE
+
+---
+
+## FEAT-037 · Focus Mode — 2-Step Flow (Socratic Clarity → Associate) `[DEV COMPLETE]`
+
+**Requested:** 2026-04-23 (W17-d03) · Revised 2026-04-23  
+**Location:** Focus Mode
+
+**Description:** Streamlined Focus Mode with revised flow: Start with Socratic reflection to understand the task deeply, then use AI-suggested associations based on answers.
+
+- **Step 1: Socratic Clarity** — 3 profound questions displayed on ONE page. Each question is greyed out until user focuses on its answer box (progressive disclosure). Questions drawn from static pool covering WHY (purpose), HOW (approach), and WHY NOW (urgency). All 3 answers captured before moving forward.
+- **Step 2: Associate** — AI analyzes Socratic answers and suggests: (a) whether this should be Wave or Task Graph, (b) which existing Pool it likely belongs to, (c) which tasks it might relate to (pairing suggestions). User reviews AI suggestions and confirms/modifies. Then sets recurrence if applicable.
+
+**Key improvements:**
+- **Breadcrumb navigation** showing current step (Socratic Clarity → Associate)
+- **3 questions on one page** — no clicking Next/Back between questions
+- **Progressive focus** — Questions greyed until focused, reducing visual overwhelm
+- **AI-powered association suggestions** based on Socratic answers
+- **Fixed recurring task menus** — Type-specific blocks now display correctly
+
+**Files changed:** `OT2_v3_Pool_Pod_Blink.jsx`  
+**Backups:** `OT2_v3_Pool_Pod_Blink-2026-w17-d03-b1.jsx`, `OT2_v3_Pool_Pod_Blink-2026-w17-d03-b2.jsx`
+
+---
+
+## FEAT-038 · ADHD-Friendly Kanban Redesign — Today, Next, Waitlist, Paused `[DEV COMPLETE]`
+
+**Requested:** 2026-04-23 (W17-d03)  
+**Location:** Work Mode → Kanban View
+
+**Description:** Replaced deadline-based Kanban columns (Today/Future/Missed/Not Planned) with ADHD-centric workflow lanes that guide users through a natural task lifecycle. Columns now reflect task *state* rather than arbitrary deadlines.
+
+- **Today** — Tasks that demand immediate attention: recurring tasks, tasks with Socratic answers that are blockers/enablers, or relationship-critical items. Color: Red (#FF6B6B) for urgency.
+- **Next** — Qualified tasks (have Socratic answers from Focus Mode) with explicit timelines/deadlines. Ready to schedule. Color: Blue (#3B82F6) for clarity.
+- **Waitlist** — Tasks qualified through Focus Mode but not yet started (no timer activity) or missing deadlines. The "someday" queue. Color: Purple (#A855F7) for possibility.
+- **Paused** — Tasks inactive for 10+ days (no edits, no timer activity). AI-suggested for review/archival. Color: Grey (#9CA3AF) for dormancy.
+
+**Key improvements:**
+- **State-based workflow** mirrors how ADHD brains actually process work (urgent → planned → someday → stale)
+- **Automatic categorization** via `categorizeForKanban()` function using Socratic answers, recurrence, relationships, timer activity, and `updatedAt` timestamps
+- **Progressive qualification** — Tasks naturally flow: Waitlist (just captured) → Next (qualified with deadline) → Today (do now) → Paused (stale)
+- **Visual subtitles** explain each column's purpose ("Do now", "Qualified & timed", etc.)
+- **Contextual empty states** guide users ("No qualified tasks — use Focus Mode")
+- **Automatic stale detection** — 10-day inactivity threshold moves tasks to Paused
+
+**Files changed:** `OT2_v3_Pool_Pod_Blink.jsx`  
+**Backup:** `OT2_v3_Pool_Pod_Blink-2026-w17-d03-b3.jsx`
+
+---
+
+## FEAT-039 · Drag-and-Drop Task Reordering with Persistent Position `[DEV COMPLETE]`
+
+**Requested:** 2026-04-23 (W17-d03)  
+**Location:** Work Mode → Kanban, WorkIQ 4×4, DailyZen
+
+**Description:** Users can now drag and drop tasks between columns, quadrants, and zones. Manual positioning overrides AI categorization and persists across sessions. This gives users agency to reclassify tasks based on their current context and priorities.
+
+**Supported Views:**
+- **Kanban** — Drag between Today/Next/Waitlist/Paused columns
+- **WorkIQ 4×4** — Drag between Standard/Mindful/New/Replacement quadrants  
+- **DailyZen** — Drag between Deep Work/Necessity/Lighten Up zones
+
+**Implementation Details:**
+- **Native HTML5 Drag & Drop API** — No external dependencies, lightweight
+- **`manualPosition` task field** — Stores `kanbanLane`, `workIQQuadrant`, `dailyZenZone` overrides
+- **`updateTaskManualPosition()` function** — Updates task with manual classification
+- **Categorization functions updated** — Check `manualPosition` first, then fall back to AI logic
+- **`DraggableTaskCard` wrapper** — Handles `dragstart` with JSON payload `{taskId, dragType}`
+- **Drop zone visual feedback** — Highlight on drag over, dashed border, opacity changes
+- **Updated help text** — "AI suggests, you decide" messaging across views
+
+**Key improvements:**
+- **User agency** — Override AI suggestions when context changes
+- **Visual feedback** — Clear indication of drop targets during drag
+- **Persistence** — Manual positions saved to localStorage via task state
+- **Cross-view consistency** — Same drag-and-drop pattern in all three strategy views
+- **Graceful fallback** — Empty zones show "Drop here" hint during drag
+
+**Files changed:** `OT2_v3_Pool_Pod_Blink.jsx`  
+**Backup:** `OT2_v3_Pool_Pod_Blink-2026-w17-d03-b5.jsx`
+
+---
+
+## FEAT-036 · ADHD UX Enhancements — Micro-Prompts, Time Anchor, Dopamine Loop `[PLANNED]`
+
+**Requested:** 2026-04-23 (W17-d03)  
+**Location:** Freedom Mode & Work Mode
+
+**Description:** Low-cognitive-load features targeting ADHD personas. 
+- **Rotating Micro-Prompts:** Freedom Mode input cycles prompts every 5 seconds ("What's on your mind?", "What are you avoiding?") to break blank-page paralysis.
+- **Time Anchor (Visual Timer):** Work Mode timer shows a shrinking progress bar/circle, not just numbers, to combat time blindness.
+- **Micro-Celebration:** Satisfying confetti/sound on task complete for dopamine reward.
+- **Guilt-Free Reset:** "Fresh Start" button appears after 48h absence — moves all overdue to "Paused" state, preventing task bankruptcy shame.
+
+---
+
+## FEAT-035 · User-Contributed Marketplace `[PLANNED]`
+
+**Requested:** 2026-04-23 (W17-d03)  
+**Location:** Marketplace Modal & Supabase backend
+
+**Description:** Transition from hardcoded `MARKETPLACE_TEMPLATES` to user-generated marketplace.
+- **Creator Flow:** Export successful Task Graph → anonymize personal data → publish as template.
+- **Pricing:** Standardized tiers (Free / Standard ~$5). Stripe Connect for automatic 70/30 revenue split (creator/platform).
+- **IP Protection:** Supabase RLS ensures `payload` JSON only readable after purchase/unlock.
+
+---
+
+## FEAT-034 · Notifications & Reminders `[PLANNED]`
+
+**Requested:** 2026-04-23 (W17-d03)  
+**Location:** Global & Settings
+
+**Description:** Multi-channel reminder architecture:
+- **Phase 1 (Free):** Browser push notifications, daily digest at chosen time.
+- **Phase 2 (Premium Coral):** WhatsApp/Telegram/SMS via Twilio API.
+- **Phase 3:** Alarm-style wake-up notifications for critical routines (fullscreen + audio).
+
+---
+
+## FEAT-033 · AI Architect (Task Graph Generation) `[PLANNED]`
+
+**Requested:** 2026-04-23 (W17-d03)  
+**Location:** Freedom Mode
+
+**Description:** AI-driven marketplace seeding. Toggle "AI Architect" in Freedom Mode → multiline project prompt → Supabase Edge Function → GPT-4o generates complete Task Graph (Pools, Pods, Tasks, Relationships) with Socratic clarifying questions → Preview → Seed.
+
+---
+
+## FEAT-032 · Review Mode — Star Rating Highlight Fix `[DEV COMPLETE]`
+
+**Requested:** 2026-04-22 (W17-d02)  
+**Location:** Review Mode
+
+**Description:** Star rating buttons now highlight all stars ≤ selected rating. Fixed by changing `editRating === r` to `editRating >= r` in button style logic. Applied to both initial review form and edit review form.
+
+**Files changed:** `OT2_v3_Pool_Pod_Blink.jsx`  
+**Backup:** None (docs update)
+
+---
+
+## FEAT-031 · Review Mode — Hide CTA for Authenticated Users `[DEV COMPLETE]`
+
+**Requested:** 2026-04-22 (W17-d02)  
+**Location:** Review Mode bottom
+
+**Description:** "Create Free Account" button and promotional text now hidden via `{!isAuthenticated && (...)}` check when user is signed in.
+
+**Files changed:** `OT2_v3_Pool_Pod_Blink.jsx`  
+**Backup:** None (docs update)
+
+---
+
+## FEAT-030 · Auth — Support all TEST_USERS in signIn `[DEV COMPLETE]`
+
+**Requested:** 2026-04-22 (W17-d02)  
+**Location:** `useAuth` hook
+
+**Description:** `signIn` function now iterates through `TEST_USERS` array instead of hardcoded single demo check. Supports `demo@ot2.app` and `test@example.com`.
+
+**Files changed:** `OT2_v3_Pool_Pod_Blink.jsx`  
+**Backup:** None (docs update)
+
+---
+
+## FEAT-029 · Auth — Session Persistence via localStorage `[DEV COMPLETE]`
+
+**Requested:** 2026-04-22 (W17-d02)  
+**Location:** `useAuth` hook
+
+**Description:** User sessions persist across page refreshes and Netlify deployments.
+- `useState` initializer reads from `localStorage.getItem('ot2_user')`
+- `signIn`/`signUp` write to `localStorage.setItem('ot2_user', JSON.stringify(userData))`
+- `signOut` removes the key
+
+**Files changed:** `OT2_v3_Pool_Pod_Blink.jsx`  
+**Backup:** None (docs update)
+
+---
+
+## FEAT-028 · Header Banner — Inline Hero Integration `[DEV COMPLETE]`
+
+**Requested:** 2026-04-21 (W17-d01)  
+**Location:** Global header
+
+**Description:** Eliminated separate hero section to maximize content area. Moved hero title (with rotating T-words) and tagline inline into sticky header between logo and user actions. Added `inlineHero`, `inlineHeroTitle`, `inlineHeroSubtitle` styles.
+
+**Files changed:** `OT2_v3_Pool_Pod_Blink.jsx`  
+**Backup:** None (docs update)
+
+---
+
+## FEAT-027 · Work Mode — Relationship banners link to related task via ↗ View `[DEV COMPLETE]`
+
+**Requested:** 2026-04-20 (W17-d01)
+**Location:** Work Mode → TaskCard relationship banners
+
+**Description:** Each relationship banner ("⏸ Waiting for...", "🔗 Do alongside...", "💡 Finishing X may speed up...", "🔀 Completing this may lead to...", "⏳ Available once...") now has a small **↗ View** button on the right side. Clicking it scrolls to the related task card within Work Mode and highlights it with a brief amber flash animation. The task title click (→ Focus Mode for editing) is unchanged.
+
+**Implementation:**
+- `otherTaskId` added to every banner object in `buildBanners()` and the `blocked-only` fallback banner
+- `scrollToTask(targetId)` helper: `getElementById('task-card-{id}')` → `scrollIntoView({behavior:'smooth', block:'center'})` → adds `task-card-flash` CSS class for 900ms
+- Task card root `<div>` gets `id={task-card-{task.id}}` for scroll targeting
+- `@keyframes taskCardFlash` injected into the global `styleSheet`: amber glow `#FFFBEB` background + `rgba(251,191,36)` box-shadow ring, fades out over 900ms
+- `.task-card-flash` CSS class applied transiently via `classList.add/remove`
+- View button styled to match banner color (border, text) with white background — visually cohesive per relationship type
+
+**Behaviour preserved:** Task title click still opens Focus Mode. Focus button still opens Focus Mode. Only the ↗ View button scrolls within Work Mode.
+
+**Files changed:** `OT2_v3_Pool_Pod_Blink.jsx`
+**Backup:** `OT2_v3_Pool_Pod_Blink-2026-w16-d06-b5.jsx`
+
+---
+
+## FEAT-026 · Recurring Tasks — Schedule-Aware Display + Calendar Widget `[DEV COMPLETE]`
+
+**Requested:** 2026-04-18 (W16-d06)
+**Location:** Work Mode → Task Graphs → Recurring view
+
+**Description:** Recurring tasks now respect their actual schedule. Tasks not due today show a dormant state instead of active check-in buttons.
+
+**Changes:**
+- `isScheduledOnDate(task, dateStr)` — pure helper, covers all recurrence types (daily, specific_days, every_n, monthly_frequency, annual)
+- `getNextScheduledDate(task, fromDate)` — scans forward up to 366 days for next due date
+- `formatFriendlyDate(dateStr)` — formats YYYY-MM-DD to "Mon 20 Apr"
+- **Due today** → full interactive card with Planned/Done/Skipped + trackers, sorted by relationship priority (blocks → pairs_with → enables → results_in → unlinked)
+- **Not due today (dormant)** → muted card, title + "🔜 Next: Mon 20 Apr", no action buttons
+- **"Hide dormant" toggle** (default ON) — collapsed by default, expandable
+- **List / Calendar tab toggle** above the recurring section
+- **`RecurringCalendarWidget`** — three views:
+  - **Week**: 7-column Mon–Sun grid, day chips colour-coded by relationship priority, click to expand day detail
+  - **Month**: full calendar grid, dot indicator per day (green=all done, amber=partial, red=missed, grey=pending)
+  - **Year**: 12 mini heatmap months, click day → jumps to Week view on that date
+- **Expanded day panel**: shows full task cards for any selected day; past/today show log buttons; future shows "Upcoming — log available on the day"
+- Task count badge: "N recurring · M due today"
+
+**Files changed:** `OT2_v3_Pool_Pod_Blink.jsx`, `codingstandards.md`
+**Backup:** `OT2_v3_Pool_Pod_Blink-2026-w16-d06-b1.jsx`
+
+---
+
+## FEAT-025 · Relationship Type Redesign — 4 Semantic Types with Work Mode Behaviour + Sort Filter `[DEV COMPLETE]`
+
+**Requested:** 2026-04-18
+**Location:** Focus Mode → Task Graph relationships; Work Mode → all views (List, Kanban, DailyZen, WorkIQ 4×4); Relationship Graph SVG
+
+**Description:** Replace the existing 3 relationship types (`blocks`, `pairs_with`, `helps_reach`) with 4 semantically richer types that drive real behaviour in Work Mode views and the relationship graph visualisation.
+
+### New Relationship Types
+
+| Key | Label | Direction | Meaning |
+|---|---|---|---|
+| `blocks` | **Blocks** | Unidirectional → | Task A must complete before Task B can start. Task B is locked in Work Mode until A is marked complete. |
+| `enables` | **Enables** | Unidirectional ╌╌ (dashed, no arrowhead) | Task C is optional but speeds up Task D. Task D shows a soft suggestion nudge. |
+| `pairs_with` | **Pairs With** | Bidirectional ↔ | Task E and F must be done together. Both show the other task's title and the shared Task Graph goal. |
+| `results_in` | **Results Either In** | Unidirectional → fork | Task X upon completion determines whether Task Y or Task Z proceeds. Both Y and Z are soft-locked until X completes, but only one will be chosen. |
+
+### Work Mode Behaviour per Type
+
+- **Blocks:** Timer and task title on the blocked task are greyed/disabled. Banner: *"⏸ Waiting for [Task A] to be marked complete"*
+- **Enables:** Soft suggestion on the enabled task: *"💡 Finishing [Task C] may speed up this task"*
+- **Pairs With:** Both tasks show: *"🔗 Do alongside [Task F] to meet [Graph title] requirements"*
+- **Results Either In:** Downstream tasks Y and Z show: *"⏳ Available once [Task X] is complete — one path will be chosen"*
+
+### Priority Sort Order (all views)
+1. 🔴 Blocker tasks (tasks that are currently blocking others)
+2. 🟣 Paired tasks
+3. 🟡 Enabler tasks
+4. 🔵 Resultant-Either tasks
+5. ⚪ Unlinked waves
+
+### Sort Filter
+Dropdown added to List / Kanban / DailyZen / WorkIQ 4×4 headers alongside existing strategy dropdown: `Sort by: [Default] [Blockers first] [Paired] [Enablers] [Resultants]`
+
+### Graph Visualisation
+- **Blocks:** Solid directed arrow →, indigo `#6366F1`
+- **Enables:** Dashed line ╌╌, no arrowhead, amber `#F59E0B`
+- **Pairs With:** Bidirectional ↔, green `#10B981`; all transitively paired tasks share one bounding rectangle
+- **Results Either In:** Two separate solid arrows from X → Y and X → Z, violet `#8B5CF6`
+
+### Data Migration
+`helps_reach` → `results_in` via `migrateRelationshipType`. Old seeded data in StressTest updated to use new keys.
+
+**Files changed:** `OT2_v3_Pool_Pod_Blink.jsx`, `OT2_StressTest.jsx`, `relationship-regression-tests.jsx`
 
 ---
 

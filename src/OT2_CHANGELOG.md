@@ -1,6 +1,6 @@
 # OT² · Running Changelog
 **Codebase:** `OT2_v3_Pool_Pod_Blink.jsx` · `OT2_StressTest.jsx`  
-**Current Baseline:** `2026-04-11 · Wave Edition · Post-FEAT-018`  
+**Current Baseline:** `2026-04-23 · Wave Edition · Post-FEAT-032 · Coral Business Model Locked`  
 **Linked docs:** `feature-update-tracker.md` · `error-log.md`
 
 > This document is a flat, running list of every completed change — features, fixes and terminology shifts — in plain language. One line or short paragraph per item. Newest entries at the top of each section.
@@ -12,6 +12,10 @@
 
 | ID | Date | Summary |
 |----|------|---------|
+| FEAT-036 | 2026-04-23 | **ADHD UX Enhancements** — Rotating micro-prompts in Freedom Mode; Time Anchor visual timer in Work Mode; micro-celebration on task complete; guilt-free "Fresh Start" reset after 48h absence |
+| FEAT-035 | 2026-04-23 | **User-Contributed Marketplace** — Creators export Task Graphs → publish templates; Stripe Connect 70/30 split; Supabase RLS payload protection; free + standard ($5) tiers |
+| FEAT-034 | 2026-04-23 | **Notifications & Reminders** — Phase 1: Browser push (free). Phase 2: WhatsApp/Telegram/SMS via Twilio (Premium). Phase 3: Alarm-style wake-ups |
+| FEAT-033 | 2026-04-23 | **AI Architect** — Freedom Mode toggle → multiline project prompt → GPT-4o generates complete Task Graph (Pools/Pods/Tasks/Relationships) with Socratic clarifying questions → Preview → Seed |
 
 ---
 
@@ -19,12 +23,24 @@
 
 | ID | Date | Summary |
 |----|------|---------|
+| FEAT-037 | 2026-04-23 | **2-Step Focus Mode** — Simplified from multi-question wizard to streamlined Associate → Socratic Clarity flow. Step 1: Task type/Pool/Relationships. Step 2: One AI-generated profound question based on task context. Breadcrumb navigation, reduced cognitive load |
+| FEAT-032 | 2026-04-23 | **Star rating highlight fix** — Rating buttons now highlight all stars ≤ selected (changed `===` to `>=` match). Applied to initial review and edit review forms |
+| FEAT-031 | 2026-04-23 | **Hide "Create Free Account" CTA for authenticated users** — CTA wrapped in `{!isAuthenticated && (...)}` check; completely hidden when signed in |
+| FEAT-030 | 2026-04-22 | **TEST_USERS support in signIn** — `signIn` iterates through `TEST_USERS` array instead of hardcoded demo check; supports demo@ot2.app and test@example.com |
+| FEAT-029 | 2026-04-22 | **Session persistence via localStorage** — `useAuth` initializes from `localStorage.getItem('ot2_user')`; writes on signIn/signUp; removes on signOut. Survives refresh + Netlify redeploy |
+| FEAT-028 | 2026-04-21 | **Inline hero header** — Eliminated separate hero section; moved title + tagline inline into sticky header between logo and user actions. Maximized content area |
+| FEAT-027 | 2026-04-20 | **Relationship banners — ↗ View button scrolls to related task in Work Mode** — each banner gets `otherTaskId`; `scrollToTask()` uses `getElementById` + `scrollIntoView` + 900ms amber flash (`taskCardFlash` keyframe); task cards get `id=task-card-{id}`; View button styled per banner colour; task title click to Focus Mode unchanged |
+| FEAT-026 | 2026-04-18 | **Schedule-aware recurring tasks + calendar widget** — `isScheduledOnDate()` checks all recurrence types; tasks not due today show dormant state with "🔜 Next: Mon 20 Apr" instead of action buttons; "Hide dormant" toggle (default ON); List/Calendar tab toggle; `RecurringCalendarWidget` with Week/Month/Year views; day chips colour-coded by relationship priority; expanded day panel with log buttons for today/past, "Upcoming" label for future; task count badge "N recurring · M due today" |
+| FEAT-025 | 2026-04-18 | **Relationship type redesign — 4 semantic types** — replaced 3 generic types with 4 behaviour-driven types: Blocks ⏸️ (hard dependency, unidirectional solid arrow; blocked task greyed + timer disabled in Work Mode), Enables 💡 (optional accelerator, dashed line no arrowhead; soft nudge banner on enabled task), Pairs With 🔗 (bidirectional ↔; all transitively paired tasks share a bounding rectangle in graph; co-requirement banner on both tasks), Results Either In 🔀 (fork dependency, two separate solid arrows; downstream tasks show availability banner). Added relationship sort filter dropdown (Blockers first / Paired / Enablers / Resultants) to List and Kanban views. Sort applied across Waves List, Waves Kanban, Pool List, Pool Kanban. Data migration: `helps_reach → results_in`. Regression tests updated with 4 new tests (migration, isTaskBlocked, priority sort, type count). |
 | FEAT-024 | 2026-04-17 | **Obsidian-style relationship graph v2** — complete rewrite with: force-directed physics simulation (300 iterations, repulsion + spring + centering forces); text-only nodes (no circles) like Obsidian; mouse wheel zoom with 30%-300% bounds; drag to pan canvas; drag nodes to reposition; hover highlights connections (unconnected nodes/edges dimmed); zoom controls (+/-/reset buttons); background grid for depth perception |
 
 ## 🐛 Completed Bug Fixes
 
 | ID | Date | Summary |
 |----|------|---------|
+| ERR-030 | 2026-04-18 | **Focus Mode textarea not focused on Next/Back/Skip** — extracted `WizardTextarea` as top-level component before `DoneCard`; parent wizard card gets `key={wizardStep}` forcing full remount on each step; `useEffect` in `WizardTextarea` calls `ref.current.focus()` on mount; added Ctrl/Cmd+Enter keyboard shortcut to advance step without mouse |
+| ERR-029 | 2026-04-18 | **Dropdown closes on hover / requires multiple clicks** — changed all dropdown item handlers from `onClick` to `onMouseDown + e.preventDefault()` across `PoolComboBox`, `PodComboBox`, `NavDropdown`; `preventDefault` stops blur from firing before selection, preventing outside-click handler race; added `onMouseEnter/Leave` hover highlight to all items for clear visual feedback |
+| ERR-028 | 2026-04-18 | **Data migration — `helps_reach` → `results_in`** — `migrateRelationshipType` extended in both v3 and StressTest; StressTest seeder updated to use all 4 new types (`t % 4`); no data loss on existing localStorage records |
 | ERR-027 | 2026-04-17 | **Focus Mode "Link tasks" button not working** — typo in `addRelationship` function: called `generateRelationship()` but function was named `generateExplanation()`; fixed function name so relationships are properly created |
 
 ## ✅ Completed Features (continued)
@@ -165,4 +181,4 @@
 
 ---
 
-_Last updated: 2026-04-11_
+_Last updated: 2026-04-23_

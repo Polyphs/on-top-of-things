@@ -1,51 +1,27 @@
-# OT² Investor Preview — Deployment Update Instructions
+# OT² Deployment Guide — Live Product
 
-**What changed:** The app now has an investor landing page between the gate and the demos.
-After entering the access code, investors see a polished index with two cards:
-- 🚀 **Live Feature Demo** → `OT2_v3_Pool_Pod_Blink.jsx`
-- 📊 **Scale & Performance Demo** → `OT2_StressTest.jsx`
+**Current Status:** Live product (evolved from investor preview). Auth sessions persist. Coral subscription model ready for implementation.
 
 ---
 
-## New src/ file structure
-
-```
-src/
-├── App.jsx                       ← REPLACE (gate + routing)
-├── InvestorLanding.jsx           ← NEW (index page)
-├── main.jsx                      ← unchanged
-├── OT2_v3_Pool_Pod_Blink.jsx     ← unchanged (your main app)
-└── OT2_StressTest.jsx            ← unchanged (scale demo)
-```
-
----
-
-## Step 1 — Copy the new files into your src/ folder
-
-From the files you received:
-
-| File | Action | Destination |
-|---|---|---|
-| `App.jsx` | Replace existing | `src/App.jsx` |
-| `InvestorLanding.jsx` | Add new | `src/InvestorLanding.jsx` |
-
-Your `OT2_v3_Pool_Pod_Blink.jsx` and `OT2_StressTest.jsx` stay exactly as they are.
-
----
-
-## Step 2 — Build
+## Quick Deploy Workflow
 
 ```bash
+# 1. Build
 npm run build
+
+# 2. Verify dist/ot2/ exists with assets and index.html
+
+# 3. Deploy to Netlify
+netlify deploy --prod
 ```
 
-You should see:
+**Expected build output:**
 ```
-vite v5.x building for production...
-✓ N modules transformed.
-dist/index.html         ...
-dist/assets/index-xxx.js ...
-built in X.XXs
+vite v6.x building for production...
+✓ 30 modules transformed.
+dist/index.html                  1.45 kB │ gzip:   0.81 kB
+dist/assets/index-xxx.js       393 kB │ gzip: 114.75 kB
   moved: dist/assets → dist/ot2/assets
   moved: dist/index.html → dist/ot2/index.html
 ✅ Post-build complete — dist/ot2/ is ready for Netlify
@@ -53,55 +29,70 @@ built in X.XXs
 
 ---
 
-## Step 3 — Deploy
+## Key Changes from Investor Preview
 
-```bash
-netlify deploy --prod
+### Auth Session Persistence (FEAT-029)
+- User sessions now survive page refreshes and Netlify redeployments
+- `localStorage` key: `ot2_user`
+- **No need to sign in again after deploy** — users stay logged in
+
+### Header Redesign (FEAT-028)
+- Hero title + tagline moved inline into sticky header
+- No separate hero section — maximized content area
+- Cleaner, more focused layout
+
+### Business Model Locked
+**Free Tier:**
+- 75 active pending tasks
+- 3 AI Project Seeds
+- Browser push notifications
+
+**Premium "Coral" Tier (~$6/month):**
+- Unlimited tasks + AI Seeds
+- Native apps (iOS/Android/Desktop)
+- WhatsApp/SMS/Telegram/alarm notifications
+- Stripe integration for payments
+
+---
+
+## Subscription Gating (Future Implementation)
+
+Premium features will check `subscription_status === 'active'` from Supabase:
+
+```javascript
+// Example gating pattern
+const isPremium = user?.subscription_status === 'active';
+
+{isPremium ? (
+  <WhatsAppNotifications />
+) : (
+  <UpgradePrompt feature="WhatsApp notifications" />
+)}
 ```
 
 ---
 
-## Step 4 — Test the deploy flow
+## Testing Checklist
 
-1. Open `https://algai.app/ot2` (or your Netlify URL)
-2. You should see the **gate screen** — enter `ot2-2026`
-3. You should land on the **investor index page** with two demo cards
-4. Click **"Open Live Demo →"** — full OT² app loads with a dark "← Back" bar at top
-5. Click back, then **"Open Scale Demo →"** — stress test loads with seed panel
-6. After seeding, verify debug overlays appear (orange DEBUG badge in header)
-7. Click "← Back to Investor Index" — confirms navigation works
-
----
-
-## Changing the access code
-
-Edit line 8 of `src/App.jsx`:
-```js
-const ACCESS_CODE = 'ot2-2026';  // ← change this
-```
-Then `npm run build && netlify deploy --prod`.
+Before each deploy:
+- [ ] Build succeeds with no errors
+- [ ] Sign in persists after page refresh
+- [ ] Header shows inline hero correctly
+- [ ] Review Mode hides CTA when authenticated
+- [ ] Star ratings highlight correctly (1-5 stars)
 
 ---
 
-## Important note: shared localStorage
+## Troubleshooting
 
-Both demos use the **same localStorage keys**. When you seed the stress test,
-it overwrites any tasks in the live demo. The investor landing page notes this
-with a warning on the stress test card.
+**Auth lost after deploy?**
+- Check `localStorage.getItem('ot2_user')` in console
+- Verify `useAuth` hook initializes from localStorage
 
-To demo the live app with clean data:
-1. Open the Scale Demo → click "Reset data" in its header
-2. Go back to the index → open the Live Demo
-
----
-
-## Responsive / mobile note
-
-The investor landing uses a 4-column pillar row and 2-column card grid.
-On screens < 640px these will stack vertically. No changes needed — CSS
-`grid-template-columns` with `minmax` handles this automatically via the
-existing inline styles.
+**Icons oversized in production?**
+- Tailwind polyfill (FEAT-018) should handle this
+- Check `styleSheet` injection includes size classes
 
 ---
 
-_Updated: 2026-04-05_
+_Updated: 2026-04-23_

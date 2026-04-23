@@ -141,4 +141,40 @@ runRelationshipTests();
 
 ---
 
-*Last updated: 2026-W16*
+## Documentation Update Standards
+
+### Session-Based Documentation Sync
+
+All project documentation must be updated in the same session as code changes:
+
+1. **Files to Update:**
+   - `src/feature-update-tracker.md` — add FEAT-XXX entries
+   - `src/essenceofbusiness.md` — add strategic decisions
+   - `src/error-log.md` — add ERR-XXX entries
+   - `src/OT2_CHANGELOG.md` — add to completed/pending tables
+   - `FEATURE_PARITY.md` — add parity rows
+   - `runninglog.txt` — append one-liner summary
+
+2. **Date Format in Docs:**
+   - Use `YYYY-W<week>-d<day>` (e.g., `2026-W17-d03`)
+   - Get current: `Get-Date -UFormat '%Y-W%V-%u'` (PowerShell)
+
+3. **CURRENT CHANGE Comment:**
+   - In `.jsx` files, add `// CURRENT CHANGE: FEAT-XXX` before modifications
+   - Include: description, date, reason, expected impact
+
+4. **Backup Requirements:**
+   - Create versioned backup BEFORE every code change
+   - Pattern: `<name>-YYYY-w<week>-d<day>-b<build>.jsx`
+   - Docs-only sessions don't need `.jsx` backups
+
+### Documentation Quality
+
+- One feature/fix per entry
+- Include: requested date, location, description, files changed
+- Mark status: `[PLANNED]` · `[IN PROGRESS]` · `[DEV COMPLETE]` · `[VERIFIED]`
+- Link related docs (feature-update-tracker ↔ error-log ↔ OT2_CHANGELOG)
+
+---
+
+*Last updated: 2026-W17*
