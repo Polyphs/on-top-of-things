@@ -7,13 +7,19 @@ export default defineConfig({
   // ─── CRITICAL: keeps all asset URLs relative to /ot2/ ───
   base: '/ot2/',
 
+  // Include .htm files as assets
+  assetsInclude: ['**/*.htm'],
+
   build: {
     outDir: 'dist',
-    // Single chunk for simplicity — fine for an investor demo
     rollupOptions: {
+      input: {
+        main: './index.html',
+      },
       output: {
         manualChunks: undefined,
       },
     },
+    copyPublicDir: true,
   },
 });

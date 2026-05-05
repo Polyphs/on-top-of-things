@@ -1,24 +1,127 @@
 // ============================================================================
-// CURRENT CHANGE: <Describe your change here before modifying code>
-// CHANGE DATE: <YYYY-W##-d##>
-// CHANGE REASON: <Why this change is needed>
-// EXPECTED IMPACT: <What functionality will be affected>
-// BACKUP: <filename-YYYY-W##-d##-b#.jsx>
+// CURRENT CHANGE: FEAT-026 — Schedule-Aware Recurring Tasks + Calendar Widget
+// CHANGE DATE: 2026-W16-d06
+// CHANGE REASON: Recurring tasks showed Planned/Done/Skipped every day regardless
+//                of whether the task was actually scheduled that day. Tasks not
+//                due today should show dormant state with next scheduled date.
+//                A calendar widget (Week/Month/Year) is needed to visualise all
+//                recurring tasks across time, sorted by relationship priority.
+// EXPECTED IMPACT:
+//   - Work Mode > Task Graphs > Recurring: schedule-aware cards
+//   - isScheduledOnDate() helper covers all recurrence types
+//   - getNextScheduledDate() computes next due date
+//   - Dormant cards: muted, title + "Next: Day Date", no action buttons
+//   - "Hide dormant" toggle (default ON)
+//   - RecurringCalendarWidget: Week/Month/Year views, priority-sorted chips
+//   - List / Calendar tab toggle above recurring section
+// BACKUP: OT2_v3_Pool_Pod_Blink-2026-w16-d06-b1.jsx
 // ============================================================================
 //
-// VERSIONING SYSTEM SETUP COMPLETE (2026-W16-d06-b1):
-// - Created codingstandards.md with versioning standards
-// - Backup created: OT2_v3_Pool_Pod_Blink-2026-w16-d06-b1.jsx
-// - Regression tests now available via window.runRegressionTests() in console
+// COMPLETED CHANGE (2026-W16-d06-b5): Ripples-style RecurringView
+// - Replaced calendar grid with per-task cards (RecurringTaskCard)
+// - Each card: task title, recurrence summary badge, Today's status buttons,
+//   inline tracker inputs
+// - Status buttons: Planned / Done / Skipped (matches StressTest pattern)
+// - Only today is editable; card color reflects status (gray/green/red)
+// - Removed date-range picker, calendar popup, and 11-day grid
+// ============================================================================
+//
+// COMPLETED CHANGE (2026-W16-d06-b4): Fixed Date Headers & Edit Window
+// - Date headers now show "Apr 13, 14, 15..." with month label at top
+// - Editable window: past 5 days + today only (6 days total)
+// - Future dates locked (not selectable/editable)
+// - Tracker fields hidden for future dates
+// - Today highlighted in amber with "TODAY" label
+// ============================================================================
+//
+// COMPLETED CHANGE (2026-W16-d06-b3): Calendar Date Picker for RecurringView
+// - Added calendar icon with date range display (e.g., "Apr 13 - Apr 23")
+// - Changed to 11-day window: 5 days before + center date + 5 days after
+// - Added month calendar popup with clickable date selection
+// - Calendar highlights: scheduled days (green dot), selected date (blue), today (amber)
 // ============================================================================
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { runRelationshipTests } from './relationship-regression-tests.jsx';
 
-// Expose regression tests to window for console access
+// ============================================================================
+// REGRESSION TESTS — inlined (no external import needed for preview/deploy)
+// Run: window.runRegressionTests() in browser console
+// ============================================================================
+const runRelationshipTests = () => {
+  const migrateRelationshipType = (oldType) => {
+    const mapping = { 'precede': 'blocks', 'follow': 'blocks', 'schedule': 'pairs_with', 'accomplish': 'pairs_with', 'helps_reach': 'results_in' };
+    return mapping[oldType] || oldType;
+  };
+
+  const tests = {
+    addRelationship: () => {
+      const rels = [];
+      rels.push({ toTaskId: 'task2', type: 'blocks', explanation: '' });
+      console.assert(rels.length === 1, 'Relationship should be added');
+      console.assert(rels[0].type === 'blocks', 'Type should be blocks');
+      return { passed: rels.length === 1, name: 'addRelationship' };
+    },
+    relationshipTypes: () => {
+      const TYPES = ['blocks','enables','pairs_with','results_in'];
+      console.assert(TYPES.length === 4, 'Should have 4 types');
+      console.assert(!TYPES.includes('helps_reach'), 'helps_reach should be removed');
+      return { passed: TYPES.length === 4, name: 'relationshipTypes' };
+    },
+    migrateHelpReachToResultsIn: () => {
+      console.assert(migrateRelationshipType('helps_reach') === 'results_in', 'helps_reach → results_in');
+      console.assert(migrateRelationshipType('precede') === 'blocks', 'precede → blocks');
+      console.assert(migrateRelationshipType('blocks') === 'blocks', 'blocks stays blocks');
+      console.assert(migrateRelationshipType('enables') === 'enables', 'enables stays enables');
+      return { passed: migrateRelationshipType('helps_reach') === 'results_in', name: 'migrateHelpReachToResultsIn' };
+    },
+    isTaskBlocked: () => {
+      const pools = [{ id: 'p1', relationships: [{ fromTaskId: 'tA', toTaskId: 'tB', type: 'blocks' }] }];
+      const tasks = [
+        { id: 'tA', content: 'A', poolIds: ['p1'], isCompleted: false },
+        { id: 'tB', content: 'B', poolIds: ['p1'], isCompleted: false },
+      ];
+      const isBlocked = (task) => {
+        const pool = pools.find(p => p.id === task.poolIds?.[0]);
+        const rel = pool?.relationships?.find(r => r.type === 'blocks' && r.toTaskId === task.id);
+        return rel ? tasks.find(t => t.id === rel.fromTaskId && !t.isCompleted) || null : null;
+      };
+      console.assert(isBlocked(tasks[1]) !== null, 'tB should be blocked');
+      tasks[0].isCompleted = true;
+      console.assert(isBlocked(tasks[1]) === null, 'tB unblocked when tA complete');
+      return { passed: true, name: 'isTaskBlocked' };
+    },
+    prioritySort: () => {
+      const P = { blocks: 1, pairs_with: 2, enables: 3, results_in: 4 };
+      const g = (t) => P[t] ?? 5;
+      console.assert(g('blocks') < g('pairs_with'), 'blocks > pairs_with');
+      console.assert(g('pairs_with') < g('enables'), 'pairs_with > enables');
+      console.assert(g('enables') < g('results_in'), 'enables > results_in');
+      return { passed: g('blocks') === 1 && g('results_in') === 4, name: 'prioritySort' };
+    },
+    zoomConstraints: () => {
+      const z = (c, d) => Math.max(0.3, Math.min(3, c * d));
+      console.assert(z(1, 0.9) < 1, 'zoom out');
+      console.assert(z(0.3, 0.9) === 0.3, 'clamp min');
+      console.assert(z(3, 1.1) === 3, 'clamp max');
+      return { passed: true, name: 'zoomConstraints' };
+    },
+  };
+
+  console.log('[OT²] Running regression tests…');
+  let passed = 0; let failed = 0;
+  for (const [, fn] of Object.entries(tests)) {
+    try {
+      const r = fn();
+      r.passed ? (passed++, console.log(`✅ ${r.name}`)) : (failed++, console.log(`❌ ${r.name}`));
+    } catch (e) { failed++; console.log(`❌ ERROR: ${e.message}`); }
+  }
+  console.log(`[OT²] Tests done — ${passed} passed, ${failed} failed`);
+  return { passed, failed, total: passed + failed };
+};
+
 if (typeof window !== 'undefined') {
   window.runRegressionTests = runRelationshipTests;
-  console.log('[OT²] Regression tests available. Run window.runRegressionTests() in console to execute.');
+  console.log('[OT²] Regression tests ready. Run window.runRegressionTests() in console.');
 }
 
 // ============================================================================
@@ -93,20 +196,69 @@ const FALLBACK_QUESTIONS = [
   { key: 'motivation', question: 'Why does this matter to you?', placeholder: 'Connect with your reason...', purpose: 'quadrant' },
 ];
 
-// === TASK GRAPH RELATIONSHIP TYPES ===
+// === TASK GRAPH RELATIONSHIP TYPES (FEAT-025) ===
+// Priority order for sort: blocks(1) > pairs_with(2) > enables(3) > results_in(4)
 const RELATIONSHIP_TYPES = [
-  { key: 'blocks', label: 'Blocks', desc: 'Needs this done first', color: '#6366F1', icon: '⏸️' },
-  { key: 'pairs_with', label: 'Pairs With', desc: 'Do these around the same time', color: '#10B981', icon: '👥' },
-  { key: 'helps_reach', label: 'Helps Reach', desc: 'Both needed for this goal', color: '#F59E0B', icon: '🎯' },
+  {
+    key: 'blocks',
+    label: 'Blocks',
+    desc: 'Task A must complete before Task B can start',
+    color: '#6366F1',
+    icon: '⏸️',
+    direction: 'unidirectional',
+    graphStyle: 'solid-arrow',
+    priority: 1,
+    workModeBanner: (otherTitle) => `⏸ Waiting for "${otherTitle}" to be marked complete`,
+  },
+  {
+    key: 'enables',
+    label: 'Enables',
+    desc: 'Optional — doing this speeds up the linked task',
+    color: '#F59E0B',
+    icon: '💡',
+    direction: 'unidirectional',
+    graphStyle: 'dashed-no-arrow',
+    priority: 3,
+    workModeBanner: (otherTitle) => `💡 Finishing "${otherTitle}" may speed up this task`,
+  },
+  {
+    key: 'pairs_with',
+    label: 'Pairs With',
+    desc: 'Do these tasks together to meet the goal',
+    color: '#10B981',
+    icon: '🔗',
+    direction: 'bidirectional',
+    graphStyle: 'bidirectional-rect',
+    priority: 2,
+    workModeBanner: (otherTitle, poolName) => `🔗 Do alongside "${otherTitle}" to meet ${poolName ? `"${poolName}"` : 'Task Graph'} requirements`,
+  },
+  {
+    key: 'results_in',
+    label: 'Results Either In',
+    desc: 'Task X completes, then either Y or Z proceeds',
+    color: '#8B5CF6',
+    icon: '🔀',
+    direction: 'unidirectional-fork',
+    graphStyle: 'fork-arrows',
+    priority: 4,
+    workModeBanner: (otherTitle) => `⏳ Available once "${otherTitle}" is complete — one path will be chosen`,
+  },
 ];
 
-// Migration helper for old relationship types to new types
+// Relationship sort priority helper
+const getRelationshipPriority = (relType) => {
+  const rt = RELATIONSHIP_TYPES.find(r => r.key === relType);
+  return rt?.priority ?? 5;
+};
+
+// Migration helper — covers all legacy keys including helps_reach → results_in
 const migrateRelationshipType = (oldType) => {
   const mapping = {
-    'precede': 'blocks',
-    'follow': 'blocks',
-    'schedule': 'pairs_with',
-    'accomplish': 'helps_reach',
+    'precede':     'blocks',
+    'follow':      'blocks',
+    'schedule':    'pairs_with',
+    'accomplish':  'pairs_with',
+    'helps_reach': 'results_in',
   };
   return mapping[oldType] || oldType;
 };
@@ -184,6 +336,76 @@ const recurrenceSummaryLine = (task) => {
   // Fallback for old types during migration
   if (r.type === 'every_n_days') return `🔁 Every ${r.everyNDays || '?'} days${trackerPart}`;
   return '—';
+};
+
+// ============================================================================
+// FEAT-026: isScheduledOnDate — pure function, returns true if task recurrence
+// includes the given dateStr (YYYY-MM-DD). Covers all recurrence types.
+// ============================================================================
+const isScheduledOnDate = (task, dateStr) => {
+  if (!task.recurrenceEnabled || !task.recurrence) return false;
+  const r = task.recurrence;
+  const date = new Date(dateStr + 'T00:00:00');
+
+  if (r.type === 'daily') return true;
+
+  if (r.type === 'specific_days') {
+    // weekDays stores 0=Mon … 6=Sun (ISO-aligned)
+    const dow = (date.getDay() + 6) % 7; // JS getDay() is 0=Sun, convert to 0=Mon
+    return (r.weekDays || []).includes(dow);
+  }
+
+  if (r.type === 'every_n' || r.type === 'every_n_days') {
+    const start = new Date((r.startDate || dateStr) + 'T00:00:00');
+    const diffMs = date - start;
+    if (diffMs < 0) return false;
+    const diffDays = Math.round(diffMs / 86400000);
+    const n = r.unit === 'weeks'
+      ? (r.everyN || 1) * 7
+      : (r.everyN || r.everyNDays || 1);
+    return diffDays % n === 0;
+  }
+
+  if (r.type === 'monthly_frequency') {
+    // Tasks with monthly frequency are shown every day of the month (user picks which days to log)
+    return true;
+  }
+
+  if (r.type === 'annual') {
+    // annualMonthDay format: 'MM-DD'
+    const mmdd = dateStr.slice(5); // 'YYYY-MM-DD' → 'MM-DD'
+    return mmdd === r.annualMonthDay;
+  }
+
+  return false;
+};
+
+// ============================================================================
+// FEAT-026: getNextScheduledDate — scans forward from fromDate to find the
+// next date (inclusive) the task is scheduled. Returns YYYY-MM-DD or null.
+// ============================================================================
+const getNextScheduledDate = (task, fromDate) => {
+  const MAX_SCAN = 366;
+  const start = new Date(fromDate + 'T00:00:00');
+  for (let i = 0; i <= MAX_SCAN; i++) {
+    const d = new Date(start);
+    d.setDate(d.getDate() + i);
+    const ds = d.toISOString().slice(0, 10);
+    if (isScheduledOnDate(task, ds)) return ds;
+  }
+  return null;
+};
+
+// ============================================================================
+// FEAT-026: formatFriendlyDate — converts YYYY-MM-DD to 'Mon 20 Apr'
+// ============================================================================
+const formatFriendlyDate = (dateStr) => {
+  if (!dateStr) return '—';
+  try {
+    return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-GB', {
+      weekday: 'short', day: 'numeric', month: 'short',
+    });
+  } catch { return dateStr; }
 };
 
 // === AI COACHING SERVICE ===
@@ -1845,7 +2067,7 @@ function FocusMode({
       {/* ── Info strip above title: Task Graphs · Recurring · Socratic Questions ── */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', justifyContent: 'center' }}>
         {[
-          { icon: <Icons.TaskGraph className="w-3.5 h-3.5" />, label: 'Task Graphs', tip: 'Connect tasks with Blocks, Pairs With, or Helps Reach to reveal clear paths', color: '#6366F1', bg: '#F5F3FF' },
+          { icon: <Icons.TaskGraph className="w-3.5 h-3.5" />, label: 'Task Graphs', tip: 'Connect tasks: Blocks, Enables, Pairs With, or Results Either In — reveals clear dependency paths', color: '#6366F1', bg: '#F5F3FF' },
           { icon: <Icons.Ripple className="w-3.5 h-3.5" />, label: 'Recurring', tip: 'Enable recurring behavior inside Task Graph tasks', color: '#0EA5E9', bg: '#F0F9FF' },
           { icon: <Icons.Sparkles className="w-4 h-4" />, label: "Socratic Q's", tip: 'AI questions that help you understand why this task truly matters', color: '#FF6B6B', bg: '#FFF1F1' },
         ].map(item => (
@@ -2142,6 +2364,7 @@ function WorkMode({
 }) {
   const [contextFilter, setContextFilter] = useState('pools');
   const [poolStrategyView, setPoolStrategyView] = useState('list');
+  const [relSort, setRelSort] = useState('default'); // 'default'|'blocks'|'pairs_with'|'enables'|'results_in'
   const [selectedPoolId, setSelectedPoolId] = useState(() => {
     // Load last selected pool from localStorage
     const saved = localStorage.getItem('ot2_last_selected_pool');
@@ -2214,6 +2437,41 @@ function WorkMode({
     return pool.relationships.filter(r => r.fromTaskId === task.id || r.toTaskId === task.id);
   };
 
+  // Check if a task is blocked (another incomplete task has a 'blocks' rel pointing TO this task)
+  const isTaskBlocked = (task) => {
+    if (!task.poolIds?.length) return null;
+    const pool = pools.find(p => p.id === task.poolIds[0]);
+    if (!pool?.relationships) return null;
+    const blockingRel = pool.relationships.find(r =>
+      r.type === 'blocks' && r.toTaskId === task.id
+    );
+    if (!blockingRel) return null;
+    const blocker = tasks.find(t => t.id === blockingRel.fromTaskId && !t.isCompleted);
+    return blocker || null;
+  };
+
+  // Sort tasks by relationship priority
+  const sortTasksByRelationship = (taskList) => {
+    if (relSort === 'default') return taskList;
+    if (['blocks','pairs_with','enables','results_in'].includes(relSort)) {
+      return [...taskList].sort((a, b) => {
+        const aRels = getTaskRelationships(a);
+        const bRels = getTaskRelationships(b);
+        const aHas = aRels.some(r => r.type === relSort) ? 0 : 1;
+        const bHas = bRels.some(r => r.type === relSort) ? 0 : 1;
+        return aHas - bHas;
+      });
+    }
+    // 'priority' — full priority sort
+    return [...taskList].sort((a, b) => {
+      const aRels = getTaskRelationships(a);
+      const bRels = getTaskRelationships(b);
+      const aPri = aRels.length ? Math.min(...aRels.map(r => getRelationshipPriority(r.type))) : 5;
+      const bPri = bRels.length ? Math.min(...bRels.map(r => getRelationshipPriority(r.type))) : 5;
+      return aPri - bPri;
+    });
+  };
+
   // TaskCard component with all reflection answers
   const TaskCard = ({ task, compact = false, showPoolInfo = true }) => {
     const elapsed = getElapsedSeconds(task.id);
@@ -2221,7 +2479,9 @@ function WorkMode({
     const paused = isTimerPaused(task.id);
     const poolName = getPoolName(task);
     const relationships = getTaskRelationships(task);
-    
+    const blockedBy = isTaskBlocked(task);
+    const isBlocked = !!blockedBy;
+
     // Get all reflection answers as bullets
     const getReasonToDo = () => {
       if (!task.reflection) return null;
@@ -2233,22 +2493,117 @@ function WorkMode({
       if (task.reflection.urgency) answers.push({ key: 'Urgency', value: task.reflection.urgency });
       return answers;
     };
-    
+
     const reasons = getReasonToDo();
 
+    // Build per-relationship Work Mode banners
+    const buildBanners = () => {
+      const pool = pools.find(p => p.id === task.poolIds?.[0]);
+      const pName = pool?.name || '';
+      const banners = [];
+
+      // Blocked-by banner (hard blocker — this task is the TARGET of a blocks rel)
+      if (isBlocked) {
+        banners.push({
+          key: 'blocked',
+          bg: '#F5F3FF', border: '#C4B5FD', color: '#6366F1',
+          text: `⏸ Waiting for "${blockedBy.content}" to be marked complete`,
+          type: 'blocks',
+        });
+      }
+
+      relationships.forEach((rel, i) => {
+        const migratedType = migrateRelationshipType(rel.type);
+        const otherTaskId = rel.fromTaskId === task.id ? rel.toTaskId : rel.fromTaskId;
+        const otherTask = tasks.find(t => t.id === otherTaskId);
+        if (!otherTask) return;
+        const otherTitle = otherTask.content.length > 35
+          ? otherTask.content.substring(0, 35) + '…'
+          : otherTask.content;
+
+        if (migratedType === 'blocks') {
+          // Only show "blocks" banner if THIS task is the blocker (fromTaskId === task.id)
+          if (rel.fromTaskId === task.id) {
+            banners.push({
+              key: `blocks-${i}`,
+              bg: '#EEF2FF', border: '#A5B4FC', color: '#4F46E5',
+              text: `⏸ This task blocks "${otherTitle}"`,
+              type: 'blocks',
+            });
+          }
+          // The "waiting for" case is already handled above via isBlocked
+        } else if (migratedType === 'enables') {
+          // Only show enabler nudge if this task IS the enabled (toTaskId)
+          if (rel.toTaskId === task.id) {
+            banners.push({
+              key: `enables-${i}`,
+              bg: '#FFFBEB', border: '#FDE68A', color: '#B45309',
+              text: `💡 Finishing "${otherTitle}" may speed up this task`,
+              type: 'enables',
+            });
+          } else {
+            banners.push({
+              key: `enables-out-${i}`,
+              bg: '#FFFBEB', border: '#FDE68A', color: '#B45309',
+              text: `💡 This task enables "${otherTitle}"`,
+              type: 'enables',
+            });
+          }
+        } else if (migratedType === 'pairs_with') {
+          banners.push({
+            key: `pairs-${i}`,
+            bg: '#F0FDF4', border: '#86EFAC', color: '#15803D',
+            text: `🔗 Do alongside "${otherTitle}"${pName ? ` to meet "${pName}" requirements` : ''}`,
+            type: 'pairs_with',
+          });
+        } else if (migratedType === 'results_in') {
+          if (rel.fromTaskId === task.id) {
+            banners.push({
+              key: `results-from-${i}`,
+              bg: '#F5F3FF', border: '#DDD6FE', color: '#7C3AED',
+              text: `🔀 Completing this may lead to "${otherTitle}" — or an alternative path`,
+              type: 'results_in',
+            });
+          } else {
+            banners.push({
+              key: `results-to-${i}`,
+              bg: '#FAF5FF', border: '#E9D5FF', color: '#9333EA',
+              text: `⏳ Available once "${otherTitle}" is complete — one path will be chosen`,
+              type: 'results_in',
+            });
+          }
+        }
+      });
+
+      return banners;
+    };
+
+    const banners = showPoolInfo && relationships.length > 0 ? buildBanners() : isBlocked ? [{
+      key: 'blocked-only',
+      bg: '#F5F3FF', border: '#C4B5FD', color: '#6366F1',
+      text: `⏸ Waiting for "${blockedBy?.content?.substring(0, 35)}" to be marked complete`,
+      type: 'blocks',
+    }] : [];
+
     return (
-      <div style={styles.workTaskCard}>
+      <div style={{
+        ...styles.workTaskCard,
+        ...(isBlocked ? { opacity: 0.72, borderColor: '#C4B5FD', backgroundColor: '#FAFAFA' } : {}),
+      }}>
         <div style={styles.workTaskHeader}>
-          <button style={styles.checkbox} onClick={() => onCompleteTask(task.id)} />
+          <button style={styles.checkbox} onClick={() => !isBlocked && onCompleteTask(task.id)} disabled={isBlocked} />
           <div style={{ flex: 1 }}>
-            <span 
-              style={styles.workTaskTitle} 
-              onClick={() => onStartFocus(task.id)}
-              title="Click to focus on this task"
+            <span
+              style={{
+                ...styles.workTaskTitle,
+                ...(isBlocked ? { color: '#A1A1AA', cursor: 'default' } : {}),
+              }}
+              onClick={() => !isBlocked && onStartFocus(task.id)}
+              title={isBlocked ? `Blocked by: ${blockedBy?.content}` : 'Click to focus on this task'}
             >
               {task.content}
             </span>
-            
+
             {/* Type badge with pool name */}
             <div style={styles.taskMetaRow}>
               {task.type === 'pool' && poolName && (
@@ -2259,7 +2614,7 @@ function WorkMode({
             </div>
           </div>
         </div>
-        
+
         {/* Reason to do - all answers as bullets */}
         {reasons && reasons.length > 0 && (
           <div style={styles.reasonToDoSection}>
@@ -2273,57 +2628,60 @@ function WorkMode({
             </ul>
           </div>
         )}
-        
-        {/* Pool relationships */}
-        {showPoolInfo && relationships.length > 0 && (
-          <div style={styles.relationshipsSection}>
-            {relationships.map((rel, idx) => {
-              const rt = RELATIONSHIP_TYPES.find(x => x.key === rel.type);
-              const otherTaskId = rel.fromTaskId === task.id ? rel.toTaskId : rel.fromTaskId;
-              const otherTask = tasks.find(t => t.id === otherTaskId);
-              return (
-                <span 
-                  key={idx} 
-                  style={{ ...styles.relationshipTag, backgroundColor: `${rt?.color}15`, color: rt?.color }}
-                  onClick={() => onStartFocus(otherTaskId)}
-                  title="Click to navigate to this task"
-                >
-                  {rt?.icon} {rt?.label}: {otherTask?.content?.substring(0, 25)}…
-                </span>
-              );
-            })}
+
+        {/* Relationship banners — semantic per type */}
+        {banners.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 }}>
+            {banners.map(b => (
+              <div key={b.key} style={{
+                display: 'flex', alignItems: 'flex-start', gap: 6,
+                padding: '6px 10px', borderRadius: 7,
+                backgroundColor: b.bg, border: `1px solid ${b.border}`,
+                fontSize: 12, color: b.color, lineHeight: 1.4,
+              }}>
+                {b.text}
+              </div>
+            ))}
           </div>
         )}
-        
+
         {/* Actions */}
         <div style={styles.workTaskActions}>
           <FocusBtn taskId={task.id} />
-          
-          {/* Timer controls - Updated with Start Work Block / Pause / Stop */}
-          {!running && !paused && (
-            <button style={styles.startWorkBtn} onClick={() => onStartTimer(task.id)}>
-              Start Work Block
+
+          {/* Timer controls — disabled if task is blocked */}
+          {isBlocked ? (
+            <button style={{ ...styles.startWorkBtn, opacity: 0.4, cursor: 'not-allowed' }} disabled title="Blocked — complete the prerequisite task first">
+              ⏸ Blocked
             </button>
-          )}
-          {(running || paused) && (
-            <div style={styles.timerControls}>
-              <span style={{ ...styles.timerDisplay, ...(running ? { color: '#FF6B6B', fontWeight: 600 } : {}) }}>
-                {formatTimer(elapsed)}
-              </span>
-              {running && (
-                <button style={styles.pauseBtn} onClick={() => onPauseTimer(task.id)}>
-                  <Icons.Pause className="w-3.5 h-3.5" /> Pause
+          ) : (
+            <>
+              {!running && !paused && (
+                <button style={styles.startWorkBtn} onClick={() => onStartTimer(task.id)}>
+                  Start Work Block
                 </button>
               )}
-              {paused && (
-                <button style={styles.resumeBtn} onClick={() => onStartTimer(task.id)}>
-                  <Icons.Play className="w-3.5 h-3.5" /> Resume
-                </button>
+              {(running || paused) && (
+                <div style={styles.timerControls}>
+                  <span style={{ ...styles.timerDisplay, ...(running ? { color: '#FF6B6B', fontWeight: 600 } : {}) }}>
+                    {formatTimer(elapsed)}
+                  </span>
+                  {running && (
+                    <button style={styles.pauseBtn} onClick={() => onPauseTimer(task.id)}>
+                      <Icons.Pause className="w-3.5 h-3.5" /> Pause
+                    </button>
+                  )}
+                  {paused && (
+                    <button style={styles.resumeBtn} onClick={() => onStartTimer(task.id)}>
+                      <Icons.Play className="w-3.5 h-3.5" /> Resume
+                    </button>
+                  )}
+                  <button style={styles.stopBtn} onClick={() => onStopTimer(task.id)}>
+                    <Icons.Square className="w-3 h-3" /> Stop
+                  </button>
+                </div>
               )}
-              <button style={styles.stopBtn} onClick={() => onStopTimer(task.id)}>
-                <Icons.Square className="w-3 h-3" /> Stop
-              </button>
-            </div>
+            </>
           )}
         </div>
       </div>
@@ -2331,15 +2689,18 @@ function WorkMode({
   };
 
   // List Waves View (default view)
-  const ListWavesView = () => (
-    <div style={styles.listWavesContainer}>
-      {waveTasks.length === 0 ? (
-        <EmptyState icon={<Icons.Briefcase className="w-8 h-8" />} message="No waves here. Add tasks in Freedom mode, or check Task Graphs." action={{ label: 'Go to Freedom Mode', onClick: onGoToFreedom }} />
-      ) : (
-        waveTasks.map(task => <TaskCard key={task.id} task={task} />)
-      )}
-    </div>
-  );
+  const ListWavesView = () => {
+    const sorted = sortTasksByRelationship(waveTasks);
+    return (
+      <div style={styles.listWavesContainer}>
+        {sorted.length === 0 ? (
+          <EmptyState icon={<Icons.Briefcase className="w-8 h-8" />} message="No waves here. Add tasks in Freedom mode, or check Task Graphs." action={{ label: 'Go to Freedom Mode', onClick: onGoToFreedom }} />
+        ) : (
+          sorted.map(task => <TaskCard key={task.id} task={task} />)
+        )}
+      </div>
+    );
+  };
 
   const KanbanView = () => (
     <div style={styles.kanbanContainer}>
@@ -2363,9 +2724,10 @@ function WorkMode({
     const poolTasks = pendingTasks.filter(t => (t.poolIds || []).includes(selectedPoolId));
     const poolRels = (pool?.relationships || []);
 
-    // ── Kanban lanes for pool tasks ──
+    // ── Kanban lanes for pool tasks — apply rel sort within each lane ──
     const poolKanbanLanes = { today: { title: 'Today', color: '#FF6B6B', tasks: [] }, future: { title: 'Future', color: '#4299E1', tasks: [] }, missed: { title: 'Missed', color: '#F59E0B', tasks: [] }, notplanned: { title: 'Not Planned', color: '#A1A1AA', tasks: [] } };
     poolTasks.forEach(t => poolKanbanLanes[categorizeByDeadline(t)].tasks.push(t));
+    Object.values(poolKanbanLanes).forEach(lane => { lane.tasks = sortTasksByRelationship(lane.tasks); });
 
     // ── DailyZen scoring for pool tasks ──
     const scorePoolTask = (task) => {
@@ -2431,7 +2793,7 @@ function WorkMode({
         <PoolHeader />
         {poolTasks.length === 0
           ? <EmptyState icon={<Icons.Layers className="w-8 h-8" />} message="No tasks assigned to this pool yet. Use Focus Mode to add tasks." />
-          : <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{poolTasks.map(task => <TaskCard key={task.id} task={task} />)}</div>
+          : <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{sortTasksByRelationship(poolTasks).map(task => <TaskCard key={task.id} task={task} />)}</div>
         }
       </>
     );
@@ -2526,80 +2888,558 @@ function WorkMode({
       );
     }
 
-    // ── RECURRING strategy (ripple behavior inside Task Graph) ──
+    // ── RECURRING strategy (Ripples behavior inside Task Graph) ──
+    // Matches StressTest RippleTaskCard pattern: per-task card with Today's
+    // Planned/Done/Skipped buttons and inline tracker inputs.
     if (poolStrategyView === 'ripples') {
       const poolRecurring = poolTasks.filter(t => t.recurrenceEnabled && t.recurrence);
-      const days = Array.from({ length: 7 }, (_, i) => addDays(todayStr(), -6 + i));
-      const cycleStatus = (cur) => {
-        const c = ['planned', 'completed', 'missed'];
-        return c[(c.indexOf(cur) + 1) % 3];
+      const today = todayStr();
+
+      // ── Schedule-aware status colours ──
+      const statusColors = {
+        planned:   { bg: '#F4F4F5', border: '#E4E4E7', text: '#71717A' },
+        completed: { bg: '#F0FDF4', border: '#86EFAC', text: '#10B981' },
+        missed:    { bg: '#FEF2F2', border: '#FECACA', text: '#EF4444' },
       };
-      const statusIcon = (s) => ({ completed: '✅', missed: '❌', planned: '⬜' }[s] || '⬜');
-      return (
-        <>
-          <PoolHeader />
-          <div style={{ backgroundColor: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#0369A1' }}>
-            〜 Recurring view inside Task Graph for <strong>{pool.name}</strong>
-          </div>
-          {poolRecurring.length === 0 ? (
-            <EmptyState icon={<Icons.Ripple className="w-8 h-8" />} message="No recurring tasks in this Task Graph yet. Enable recurrence in Focus Mode." />
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {poolRecurring.map(task => (
-                <div key={task.id} style={styles.workTaskCard}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
-                    <span style={styles.workTaskTitle}>{task.content}</span>
-                    <span style={styles.podBadge}>{recurrenceSummaryLine(task)}</span>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: `repeat(7, minmax(36px, 1fr))`, gap: 6, marginBottom: 8 }}>
-                    {days.map(d => {
-                      const log = getRecurrenceLog(task.id, d);
-                      return (
-                        <button
-                          key={d}
-                          style={{ border: '1px solid #E4E4E7', borderRadius: 6, background: 'white', padding: '6px 0', cursor: 'pointer' }}
-                          title={`${d} · click to cycle status`}
-                          onClick={() => setRecurrenceLog(task.id, d, { status: cycleStatus(log.status) })}
-                        >
-                          {statusIcon(log.status)}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {((task.recurrence?.trackers?.length > 0) || (task.recurrenceTrackerLabel || '').trim()) && (
-                    <div style={{ marginTop: 8 }}>
-                      {/* Support both new trackers array and old recurrenceTrackerLabel */}
-                      {task.recurrence?.trackers?.map(tracker => (
-                        <div key={tracker.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                          <span style={{ fontSize: 12, color: '#71717A', minWidth: 44 }}>{tracker.label}:</span>
-                          <input
-                            style={{ ...styles.input, maxWidth: 160, padding: '6px 8px' }}
-                            placeholder="Enter value"
-                            value={getRecurrenceLog(task.id, todayStr()).trackerValues?.[tracker.id] || ''}
-                            onChange={e => setRecurrenceLog(task.id, todayStr(), { trackerValues: { ...getRecurrenceLog(task.id, todayStr()).trackerValues, [tracker.id]: e.target.value } })}
-                          />
-                        </div>
-                      ))}
-                      {/* Fallback for old recurrenceTrackerLabel */}
-                      {!task.recurrence?.trackers?.length && (task.recurrenceTrackerLabel || '').trim() && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{ fontSize: 12, color: '#71717A', minWidth: 44 }}>{task.recurrenceTrackerLabel}:</span>
-                          <input
-                            style={{ ...styles.input, maxWidth: 160, padding: '6px 8px' }}
-                            placeholder="Enter value"
-                            value={getRecurrenceLog(task.id, todayStr()).trackerValues?.t1 || ''}
-                            onChange={e => setRecurrenceLog(task.id, todayStr(), { trackerValues: { t1: e.target.value } })}
-                          />
-                        </div>
+      const statusButtons = [
+        { key: 'planned',   label: 'Planned' },
+        { key: 'completed', label: 'Done' },
+        { key: 'missed',    label: 'Skipped' },
+      ];
+
+      // ── FEAT-026: RecurringCalendarWidget ──
+      // Week / Month / Year views showing all tasks due each day
+      const RecurringCalendarWidget = () => {
+        const [calView, setCalView] = useState('week');
+        const [calAnchor, setCalAnchor] = useState(today);       // YYYY-MM-DD anchor
+        const [selectedDay, setSelectedDay] = useState(null);    // expanded day
+
+        const addDaysTo = (ds, n) => {
+          const d = new Date(ds + 'T00:00:00');
+          d.setDate(d.getDate() + n);
+          return d.toISOString().slice(0, 10);
+        };
+
+        // Tasks due on a given day, sorted by relationship priority
+        const tasksDueOn = (ds) => {
+          const due = poolRecurring.filter(t => isScheduledOnDate(t, ds));
+          return due.sort((a, b) => {
+            const aRels = getTaskRelationships(a);
+            const bRels = getTaskRelationships(b);
+            const aPri = aRels.length ? Math.min(...aRels.map(r => getRelationshipPriority(r.type))) : 5;
+            const bPri = bRels.length ? Math.min(...bRels.map(r => getRelationshipPriority(r.type))) : 5;
+            return aPri - bPri;
+          });
+        };
+
+        // Chip colour by relationship priority
+        const chipColor = (task) => {
+          const rels = getTaskRelationships(task);
+          if (!rels.length) return '#94A3B8';
+          const minPri = Math.min(...rels.map(r => getRelationshipPriority(r.type)));
+          return minPri === 1 ? '#6366F1'
+            : minPri === 2 ? '#10B981'
+            : minPri === 3 ? '#F59E0B'
+            : '#8B5CF6';
+        };
+
+        // Status dot for a day's tasks
+        const dayStatus = (ds) => {
+          const due = tasksDueOn(ds);
+          if (!due.length) return null;
+          const logs = due.map(t => getRecurrenceLog(t.id, ds).status);
+          if (logs.every(s => s === 'completed')) return '#10B981';
+          if (logs.some(s => s === 'missed')) return '#EF4444';
+          if (logs.some(s => s === 'completed')) return '#F59E0B';
+          return '#94A3B8';
+        };
+
+        // ── Week view: 7 columns Mon–Sun of the anchor's week ──
+        const WeekView = () => {
+          // Find Monday of the anchor's week
+          const anchor = new Date(calAnchor + 'T00:00:00');
+          const dow = (anchor.getDay() + 6) % 7; // 0=Mon
+          const monday = addDaysTo(calAnchor, -dow);
+          const days = Array.from({ length: 7 }, (_, i) => addDaysTo(monday, i));
+
+          return (
+            <div>
+              {/* Week navigation */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                <button onClick={() => setCalAnchor(addDaysTo(calAnchor, -7))} style={calNavBtn}>‹ Prev</button>
+                <span style={{ flex: 1, textAlign: 'center', fontSize: 13, fontWeight: 600, color: '#18181B' }}>
+                  {formatFriendlyDate(days[0])} – {formatFriendlyDate(days[6])}
+                </span>
+                <button onClick={() => setCalAnchor(addDaysTo(calAnchor, 7))} style={calNavBtn}>Next ›</button>
+                <button onClick={() => setCalAnchor(today)} style={{ ...calNavBtn, color: '#FF6B6B' }}>Today</button>
+              </div>
+
+              {/* 7-column grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6 }}>
+                {/* Day headers */}
+                {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d => (
+                  <div key={d} style={{ textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#A1A1AA', padding: '4px 0' }}>{d}</div>
+                ))}
+                {/* Day cells */}
+                {days.map(ds => {
+                  const due = tasksDueOn(ds);
+                  const isToday = ds === today;
+                  const isSelected = ds === selectedDay;
+                  const dot = dayStatus(ds);
+                  return (
+                    <div
+                      key={ds}
+                      onClick={() => setSelectedDay(isSelected ? null : ds)}
+                      style={{
+                        border: isSelected ? '2px solid #6366F1' : isToday ? '2px solid #FF6B6B' : '1px solid #E4E4E7',
+                        borderRadius: 8,
+                        padding: '6px 4px',
+                        cursor: 'pointer',
+                        backgroundColor: isSelected ? '#F5F3FF' : isToday ? '#FFF5F5' : 'white',
+                        minHeight: 56,
+                        position: 'relative',
+                      }}
+                    >
+                      <div style={{ fontSize: 12, fontWeight: isToday ? 700 : 500, color: isToday ? '#FF6B6B' : '#18181B', textAlign: 'center' }}>
+                        {new Date(ds + 'T00:00:00').getDate()}
+                      </div>
+                      {dot && (
+                        <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: dot, margin: '3px auto' }} />
+                      )}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 2 }}>
+                        {due.slice(0, 3).map(t => (
+                          <div key={t.id} style={{
+                            fontSize: 9, padding: '1px 4px', borderRadius: 3,
+                            backgroundColor: chipColor(t) + '20', color: chipColor(t),
+                            fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                          }}>
+                            {t.content.substring(0, 12)}
+                          </div>
+                        ))}
+                        {due.length > 3 && (
+                          <div style={{ fontSize: 9, color: '#A1A1AA', textAlign: 'center' }}>+{due.length - 3}</div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Expanded day detail */}
+              {selectedDay && tasksDueOn(selectedDay).length > 0 && (
+                <ExpandedDayPanel ds={selectedDay} />
+              )}
+              {selectedDay && tasksDueOn(selectedDay).length === 0 && (
+                <div style={{ marginTop: 10, padding: '10px 14px', backgroundColor: '#F4F4F5', borderRadius: 8, fontSize: 13, color: '#A1A1AA', textAlign: 'center' }}>
+                  No recurring tasks scheduled on {formatFriendlyDate(selectedDay)}
+                </div>
+              )}
+            </div>
+          );
+        };
+
+        // ── Month view: full calendar grid ──
+        const MonthView = () => {
+          const anchor = new Date(calAnchor + 'T00:00:00');
+          const year = anchor.getFullYear();
+          const month = anchor.getMonth();
+          const firstDay = new Date(year, month, 1);
+          const lastDay = new Date(year, month + 1, 0);
+          // Pad to Monday start
+          const startPad = (firstDay.getDay() + 6) % 7;
+          const totalCells = startPad + lastDay.getDate();
+          const cells = Array.from({ length: Math.ceil(totalCells / 7) * 7 }, (_, i) => {
+            const d = new Date(year, month, 1 - startPad + i);
+            return { ds: d.toISOString().slice(0, 10), inMonth: d.getMonth() === month };
+          });
+
+          const prevMonth = () => {
+            const d = new Date(year, month - 1, 1);
+            setCalAnchor(d.toISOString().slice(0, 10));
+          };
+          const nextMonth = () => {
+            const d = new Date(year, month + 1, 1);
+            setCalAnchor(d.toISOString().slice(0, 10));
+          };
+          const monthLabel = firstDay.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+
+          return (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                <button onClick={prevMonth} style={calNavBtn}>‹ Prev</button>
+                <span style={{ flex: 1, textAlign: 'center', fontSize: 13, fontWeight: 600, color: '#18181B' }}>{monthLabel}</span>
+                <button onClick={nextMonth} style={calNavBtn}>Next ›</button>
+                <button onClick={() => setCalAnchor(today)} style={{ ...calNavBtn, color: '#FF6B6B' }}>Today</button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 3 }}>
+                {['M','T','W','T','F','S','S'].map((d, i) => (
+                  <div key={i} style={{ textAlign: 'center', fontSize: 10, fontWeight: 700, color: '#A1A1AA', padding: '2px 0' }}>{d}</div>
+                ))}
+                {cells.map(({ ds, inMonth }) => {
+                  const due = tasksDueOn(ds);
+                  const isToday = ds === today;
+                  const isSelected = ds === selectedDay;
+                  const dot = dayStatus(ds);
+                  return (
+                    <div
+                      key={ds}
+                      onClick={() => inMonth && setSelectedDay(isSelected ? null : ds)}
+                      style={{
+                        border: isSelected ? '2px solid #6366F1' : isToday ? '2px solid #FF6B6B' : '1px solid #F0F0F0',
+                        borderRadius: 6, padding: '4px 3px',
+                        cursor: inMonth ? 'pointer' : 'default',
+                        backgroundColor: isSelected ? '#F5F3FF' : isToday ? '#FFF5F5' : inMonth ? 'white' : '#FAFAFA',
+                        minHeight: 40, opacity: inMonth ? 1 : 0.35,
+                      }}
+                    >
+                      <div style={{ fontSize: 11, fontWeight: isToday ? 700 : 400, color: isToday ? '#FF6B6B' : '#52525B', textAlign: 'center' }}>
+                        {new Date(ds + 'T00:00:00').getDate()}
+                      </div>
+                      {dot && <div style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: dot, margin: '2px auto' }} />}
+                      {due.length > 0 && (
+                        <div style={{ fontSize: 8, color: '#6366F1', textAlign: 'center', fontWeight: 700 }}>{due.length}</div>
                       )}
                     </div>
-                  )}
-                </div>
+                  );
+                })}
+              </div>
+              {selectedDay && <ExpandedDayPanel ds={selectedDay} />}
+            </div>
+          );
+        };
+
+        // ── Year view: 12 mini month heatmaps ──
+        const YearView = () => {
+          const year = new Date(calAnchor + 'T00:00:00').getFullYear();
+          const months = Array.from({ length: 12 }, (_, m) => m);
+
+          return (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                <button onClick={() => setCalAnchor(`${year - 1}-01-01`)} style={calNavBtn}>‹ {year - 1}</button>
+                <span style={{ flex: 1, textAlign: 'center', fontSize: 13, fontWeight: 600, color: '#18181B' }}>{year}</span>
+                <button onClick={() => setCalAnchor(`${year + 1}-01-01`)} style={calNavBtn}>{year + 1} ›</button>
+                <button onClick={() => setCalAnchor(today)} style={{ ...calNavBtn, color: '#FF6B6B' }}>Today</button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                {months.map(m => {
+                  const firstDay = new Date(year, m, 1);
+                  const lastDay = new Date(year, m + 1, 0);
+                  const monthName = firstDay.toLocaleDateString('en-GB', { month: 'short' });
+                  const startPad = (firstDay.getDay() + 6) % 7;
+                  const cells = Array.from({ length: startPad + lastDay.getDate() }, (_, i) => {
+                    if (i < startPad) return null;
+                    const d = new Date(year, m, i - startPad + 1);
+                    return d.toISOString().slice(0, 10);
+                  });
+                  return (
+                    <div key={m} style={{ backgroundColor: '#FAFAFA', border: '1px solid #E4E4E7', borderRadius: 8, padding: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#52525B', marginBottom: 4, textAlign: 'center' }}>{monthName}</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1 }}>
+                        {cells.map((ds, i) => {
+                          if (!ds) return <div key={`pad-${i}`} />;
+                          const due = tasksDueOn(ds);
+                          const isToday = ds === today;
+                          const dot = dayStatus(ds);
+                          return (
+                            <div
+                              key={ds}
+                              onClick={() => { setCalAnchor(ds); setSelectedDay(ds); setCalView('week'); }}
+                              title={`${formatFriendlyDate(ds)}: ${due.length} task${due.length !== 1 ? 's' : ''}`}
+                              style={{
+                                width: '100%', aspectRatio: '1',
+                                borderRadius: 2,
+                                backgroundColor: dot ? dot + '30' : isToday ? '#FFF5F5' : 'white',
+                                border: isToday ? '1px solid #FF6B6B' : '1px solid #F0F0F0',
+                                cursor: due.length ? 'pointer' : 'default',
+                              }}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ marginTop: 8, fontSize: 11, color: '#A1A1AA', textAlign: 'center' }}>
+                Click any day to open in Week view · Colours: 🟢 all done · 🟡 partial · 🔴 missed · ⚫ pending
+              </div>
+            </div>
+          );
+        };
+
+        // ── Expanded day panel (shown below week/month grid when a day is selected) ──
+        const ExpandedDayPanel = ({ ds }) => {
+          const due = tasksDueOn(ds);
+          const isPast = ds < today;
+          const isFuture = ds > today;
+          return (
+            <div style={{ marginTop: 12, border: '1px solid #E4E4E7', borderRadius: 10, overflow: 'hidden' }}>
+              <div style={{ padding: '8px 12px', backgroundColor: ds === today ? '#FFF5F5' : '#F9FAFB', borderBottom: '1px solid #E4E4E7', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: ds === today ? '#FF6B6B' : '#18181B' }}>
+                  {ds === today ? '📅 Today — ' : isFuture ? '📅 ' : '📋 '}{formatFriendlyDate(ds)}
+                </span>
+                <span style={{ fontSize: 11, color: '#A1A1AA' }}>{due.length} task{due.length !== 1 ? 's' : ''} due</span>
+                {isPast && <span style={{ fontSize: 11, backgroundColor: '#FEF2F2', color: '#EF4444', padding: '1px 6px', borderRadius: 4 }}>Past</span>}
+                {isFuture && <span style={{ fontSize: 11, backgroundColor: '#F0F9FF', color: '#0EA5E9', padding: '1px 6px', borderRadius: 4 }}>Upcoming</span>}
+              </div>
+              <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {due.map(task => {
+                  const log = getRecurrenceLog(task.id, ds);
+                  const colors = statusColors[log.status] || statusColors.planned;
+                  const trackers = task.recurrence?.trackers || [];
+                  const legacyLabel = (task.recurrenceTrackerLabel || '').trim();
+                  const setStatus = (status) => setRecurrenceLog(task.id, ds, { status });
+                  const setTracker = (id, value) => setRecurrenceLog(task.id, ds, {
+                    trackerValues: { ...(log.trackerValues || {}), [id]: value }
+                  });
+                  return (
+                    <div key={task.id} style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 8, padding: 10 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6, marginBottom: 6, alignItems: 'flex-start' }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: '#18181B', flex: 1 }}>{task.content}</span>
+                        <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, backgroundColor: chipColor(task) + '20', color: chipColor(task), fontWeight: 600, flexShrink: 0 }}>
+                          {recurrenceSummaryLine(task)}
+                        </span>
+                      </div>
+                      {/* Action buttons — only show for today and past (not future) */}
+                      {!isFuture && (
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                          <span style={{ fontSize: 11, color: '#71717A', fontWeight: 500 }}>
+                            {ds === today ? 'Today:' : 'Log:'}
+                          </span>
+                          {statusButtons.map(s => {
+                            const active = log.status === s.key;
+                            const sc = statusColors[s.key];
+                            return (
+                              <button key={s.key} onClick={() => setStatus(s.key)} style={{
+                                padding: '3px 10px', borderRadius: 5,
+                                border: `1px solid ${active ? sc.text : '#E4E4E7'}`,
+                                backgroundColor: active ? sc.text : 'white',
+                                color: active ? 'white' : '#71717A',
+                                fontSize: 11, fontWeight: 500, cursor: 'pointer',
+                              }}>{s.label}</button>
+                            );
+                          })}
+                          {trackers.map(tracker => (
+                            <input key={tracker.id} type={tracker.valueType === 'number' ? 'number' : 'text'}
+                              placeholder={tracker.label || 'Value'}
+                              value={(log.trackerValues || {})[tracker.id] || ''}
+                              onChange={e => setTracker(tracker.id, e.target.value)}
+                              style={{ padding: '3px 8px', fontSize: 11, border: '1px solid #E4E4E7', borderRadius: 5, width: 80, backgroundColor: 'white' }} />
+                          ))}
+                          {!trackers.length && legacyLabel && (
+                            <input type="text" placeholder={legacyLabel}
+                              value={(log.trackerValues || {}).t1 || ''}
+                              onChange={e => setTracker('t1', e.target.value)}
+                              style={{ padding: '3px 8px', fontSize: 11, border: '1px solid #E4E4E7', borderRadius: 5, width: 80, backgroundColor: 'white' }} />
+                          )}
+                        </div>
+                      )}
+                      {isFuture && (
+                        <div style={{ fontSize: 11, color: '#A1A1AA', fontStyle: 'italic' }}>Upcoming — log available on the day</div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        };
+
+        // Shared nav button style
+        const calNavBtn = {
+          padding: '4px 10px', borderRadius: 6, border: '1px solid #E4E4E7',
+          backgroundColor: 'white', color: '#52525B', fontSize: 12, cursor: 'pointer',
+        };
+
+        return (
+          <div style={{ marginTop: 12 }}>
+            {/* View tabs */}
+            <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
+              {[
+                { key: 'week',  label: '🗓 Week' },
+                { key: 'month', label: '📅 Month' },
+                { key: 'year',  label: '📆 Year' },
+              ].map(v => (
+                <button key={v.key} onClick={() => { setCalView(v.key); setSelectedDay(null); }} style={{
+                  padding: '5px 14px', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  border: calView === v.key ? '1.5px solid #6366F1' : '1px solid #E4E4E7',
+                  backgroundColor: calView === v.key ? '#F5F3FF' : 'white',
+                  color: calView === v.key ? '#6366F1' : '#71717A',
+                }}>{v.label}</button>
               ))}
             </div>
-          )}
-        </>
-      );
+            {calView === 'week'  && <WeekView />}
+            {calView === 'month' && <MonthView />}
+            {calView === 'year'  && <YearView />}
+          </div>
+        );
+      };
+
+      // ── FEAT-026: Schedule-aware list view ──
+      const RecurringListView = ({ hideDormant, setHideDormant }) => {
+        // Split into due-today and dormant, sort each group by relationship priority
+        const sortByRelPriority = (arr) => [...arr].sort((a, b) => {
+          const aRels = getTaskRelationships(a);
+          const bRels = getTaskRelationships(b);
+          const aPri = aRels.length ? Math.min(...aRels.map(r => getRelationshipPriority(r.type))) : 5;
+          const bPri = bRels.length ? Math.min(...bRels.map(r => getRelationshipPriority(r.type))) : 5;
+          return aPri - bPri;
+        });
+
+        const dueToday   = sortByRelPriority(poolRecurring.filter(t => isScheduledOnDate(t, today)));
+        const dormant    = sortByRelPriority(poolRecurring.filter(t => !isScheduledOnDate(t, today)));
+
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {/* Due today cards — full interactive */}
+            {dueToday.length === 0 && (
+              <div style={{ padding: '12px 14px', backgroundColor: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: 10, fontSize: 13, color: '#0369A1', textAlign: 'center' }}>
+                No recurring tasks scheduled for today in this Task Graph
+              </div>
+            )}
+            {dueToday.map(task => {
+              const log = getRecurrenceLog(task.id, today);
+              const colors = statusColors[log.status] || statusColors.planned;
+              const trackers = task.recurrence?.trackers || [];
+              const legacyLabel = (task.recurrenceTrackerLabel || '').trim();
+              const setStatus = (status) => setRecurrenceLog(task.id, today, { status });
+              const setTracker = (id, value) => setRecurrenceLog(task.id, today, {
+                trackerValues: { ...(log.trackerValues || {}), [id]: value }
+              });
+              return (
+                <div key={task.id} style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 10, padding: 12 }}>
+                  {/* Header */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 4, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: '#18181B', flex: 1, minWidth: 0 }}>{task.content}</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, backgroundColor: '#0EA5E915', color: '#0369A1', fontSize: 11, padding: '2px 8px', borderRadius: 6, fontWeight: 500, flexShrink: 0 }}>
+                      {recurrenceSummaryLine(task)}
+                    </span>
+                  </div>
+                  {/* Today check-in */}
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 12, color: '#71717A', fontWeight: 500 }}>Today:</span>
+                    {statusButtons.map(s => {
+                      const active = log.status === s.key;
+                      const sc = statusColors[s.key];
+                      return (
+                        <button key={s.key} onClick={() => setStatus(s.key)} style={{
+                          padding: '4px 12px', borderRadius: 6,
+                          border: `1px solid ${active ? sc.text : '#E4E4E7'}`,
+                          backgroundColor: active ? sc.text : 'white',
+                          color: active ? 'white' : '#71717A',
+                          fontSize: 12, fontWeight: 500, cursor: 'pointer',
+                        }}>{s.label}</button>
+                      );
+                    })}
+                    {trackers.map(tracker => (
+                      <input key={tracker.id} type={tracker.valueType === 'number' ? 'number' : 'text'}
+                        placeholder={tracker.label || 'Value'}
+                        value={(log.trackerValues || {})[tracker.id] || ''}
+                        onChange={e => setTracker(tracker.id, e.target.value)}
+                        style={{ flex: 1, minWidth: 100, padding: '4px 8px', fontSize: 12, border: '1px solid #E4E4E7', borderRadius: 6, backgroundColor: 'white' }} />
+                    ))}
+                    {!trackers.length && legacyLabel && (
+                      <input type="text" placeholder={legacyLabel}
+                        value={(log.trackerValues || {}).t1 || ''}
+                        onChange={e => setTracker('t1', e.target.value)}
+                        style={{ flex: 1, minWidth: 100, padding: '4px 8px', fontSize: 12, border: '1px solid #E4E4E7', borderRadius: 6, backgroundColor: 'white' }} />
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Dormant section */}
+            {dormant.length > 0 && (
+              <div style={{ marginTop: 4 }}>
+                <button
+                  onClick={() => setHideDormant(h => !h)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#71717A', padding: '4px 0', marginBottom: 6 }}
+                >
+                  <span style={{ fontSize: 10 }}>{hideDormant ? '▶' : '▼'}</span>
+                  {hideDormant ? `Show ${dormant.length} dormant task${dormant.length !== 1 ? 's' : ''} not scheduled today` : `Hide dormant tasks (${dormant.length})`}
+                </button>
+
+                {!hideDormant && dormant.map(task => {
+                  const next = getNextScheduledDate(task, todayStr());
+                  const nextLabel = next
+                    ? next === todayStr() ? 'Today' : formatFriendlyDate(next)
+                    : 'No upcoming schedule';
+                  return (
+                    <div key={task.id} style={{
+                      border: '1px solid #E4E4E7', borderRadius: 10, padding: '10px 12px',
+                      backgroundColor: '#FAFAFA', opacity: 0.75,
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+                      marginBottom: 6,
+                    }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ fontSize: 13, fontWeight: 500, color: '#52525B' }}>{task.content}</span>
+                        <div style={{ fontSize: 11, color: '#A1A1AA', marginTop: 2 }}>{recurrenceSummaryLine(task)}</div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                        <span style={{ fontSize: 11, color: '#0369A1', backgroundColor: '#F0F9FF', border: '1px solid #BAE6FD', padding: '3px 8px', borderRadius: 6, fontWeight: 500 }}>
+                          🔜 Next: {nextLabel}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      // ── Main ripples render with List / Calendar toggle ──
+      const RipplesMain = () => {
+        const [recurringTab, setRecurringTab] = useState('list');
+        const [hideDormant, setHideDormant] = useState(true);
+
+        return (
+          <>
+            <PoolHeader />
+            {/* Info banner */}
+            <div style={{ backgroundColor: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 13, color: '#0369A1' }}>
+              〜 Recurring view inside Task Graph for <strong>{pool.name}</strong>
+            </div>
+
+            {poolRecurring.length === 0 ? (
+              <EmptyState icon={<Icons.Ripple className="w-8 h-8" />} message="No recurring tasks in this Task Graph yet. Enable recurrence in Focus Mode." />
+            ) : (
+              <>
+                {/* List / Calendar tab toggle */}
+                <div style={{ display: 'flex', gap: 4, marginBottom: 14 }}>
+                  {[
+                    { key: 'list',     label: '📋 List' },
+                    { key: 'calendar', label: '📅 Calendar' },
+                  ].map(t => (
+                    <button key={t.key} onClick={() => setRecurringTab(t.key)} style={{
+                      padding: '5px 16px', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                      border: recurringTab === t.key ? '1.5px solid #0EA5E9' : '1px solid #E4E4E7',
+                      backgroundColor: recurringTab === t.key ? '#F0F9FF' : 'white',
+                      color: recurringTab === t.key ? '#0369A1' : '#71717A',
+                    }}>{t.label}</button>
+                  ))}
+                  {/* Task count chip */}
+                  <span style={{ marginLeft: 'auto', fontSize: 11, color: '#71717A', alignSelf: 'center' }}>
+                    {poolRecurring.length} recurring · {poolRecurring.filter(t => isScheduledOnDate(t, today)).length} due today
+                  </span>
+                </div>
+
+                {recurringTab === 'list' && (
+                  <RecurringListView hideDormant={hideDormant} setHideDormant={setHideDormant} />
+                )}
+                {recurringTab === 'calendar' && (
+                  <RecurringCalendarWidget />
+                )}
+              </>
+            )}
+          </>
+        );
+      };
+
+      return <RipplesMain />;
     }
 
     return <PoolHeader />;
@@ -2701,10 +3541,128 @@ function WorkMode({
       );
     };
 
-    // ── Recurring sub-view (calendar grid) ──
-    const RecurringView = () => {
-      const days = Array.from({ length: 14 }, (_, i) => addDays(addDays(today, -6), i));
+    // ── Recurring sub-view: per-task cards (Ripples style from StressTest) ──
+    // Each task shows: title, recurrence summary badge, Today's Planned/Done/Skipped
+    // buttons, and tracker inputs. Only today is editable.
+    const RecurringTaskCard = ({ task }) => {
+      const log = getPodLog(pod.id, task.id, today);
+      const trackerFields = (pod.trackerFields || []).filter(f => f.name);
 
+      const statusColors = {
+        planned: { bg: '#F4F4F5', border: '#E4E4E7', text: '#71717A' },
+        completed: { bg: '#F0FDF4', border: '#86EFAC', text: '#10B981' },
+        missed: { bg: '#FEF2F2', border: '#FECACA', text: '#EF4444' },
+      };
+      const colors = statusColors[log.status] || statusColors.planned;
+
+      const statusButtons = [
+        { key: 'planned', label: 'Planned' },
+        { key: 'completed', label: 'Done' },
+        { key: 'missed', label: 'Skipped' },
+      ];
+
+      const setStatus = (status) => setPodLog(pod.id, task.id, today, { status });
+      const setTracker = (fieldId, value) => setPodLog(pod.id, task.id, today, {
+        trackerValues: { ...(log.trackerValues || {}), [fieldId]: value }
+      });
+
+      return (
+        <div style={{
+          backgroundColor: colors.bg,
+          border: `1px solid ${colors.border}`,
+          borderRadius: 10,
+          padding: 12,
+          marginBottom: 10,
+        }}>
+          {/* Header: title + recurrence badge */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 6, alignItems: 'flex-start' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#18181B', marginBottom: 4 }}>
+                {task.content}
+              </div>
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                backgroundColor: '#0EA5E915',
+                color: '#0369A1',
+                fontSize: 11,
+                padding: '2px 8px',
+                borderRadius: 6,
+                fontWeight: 500,
+              }}>
+                <Icons.Calendar className="w-3 h-3" />
+                {podSummaryLine(pod)}
+              </div>
+            </div>
+          </div>
+
+          {/* Today's check-in row */}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12, color: '#71717A', fontWeight: 500 }}>Today:</span>
+            {statusButtons.map(s => {
+              const active = log.status === s.key;
+              return (
+                <button
+                  key={s.key}
+                  onClick={() => setStatus(s.key)}
+                  style={{
+                    padding: '4px 12px',
+                    borderRadius: 6,
+                    border: `1px solid ${active ? colors.text : '#E4E4E7'}`,
+                    backgroundColor: active ? colors.text : 'white',
+                    color: active ? 'white' : '#71717A',
+                    fontSize: 12,
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {s.label}
+                </button>
+              );
+            })}
+
+            {/* Tracker inputs inline */}
+            {trackerFields.map(field => {
+              const val = (log.trackerValues || {})[field.id] || '';
+              if (field.type === 'checkbox') {
+                return (
+                  <label key={field.id} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#71717A' }}>
+                    <input
+                      type="checkbox"
+                      checked={val === 'true'}
+                      onChange={e => setTracker(field.id, e.target.checked ? 'true' : 'false')}
+                      style={{ cursor: 'pointer' }}
+                    />
+                    {field.name}
+                  </label>
+                );
+              }
+              return (
+                <input
+                  key={field.id}
+                  type={field.type === 'number' ? 'number' : 'text'}
+                  placeholder={field.name}
+                  value={val}
+                  onChange={e => setTracker(field.id, e.target.value)}
+                  style={{
+                    flex: 1,
+                    minWidth: 100,
+                    padding: '4px 8px',
+                    fontSize: 12,
+                    border: '1px solid #E4E4E7',
+                    borderRadius: 6,
+                    backgroundColor: 'white',
+                  }}
+                />
+              );
+            })}
+          </div>
+        </div>
+      );
+    };
+
+    const RecurringView = () => {
       const isDayActive = (dayStr) => {
         if (!pod) return false;
         const r = pod.recurrence;
@@ -2722,81 +3680,55 @@ function WorkMode({
         return true;
       };
 
-      const statusIcon = (s) => ({ completed: '✅', missed: '❌', planned: '⬜' }[s] || '⬜');
-      const cycleStatus = (cur) => { const c = ['planned','completed','missed']; return c[(c.indexOf(cur)+1)%3]; };
+      const todayScheduled = isDayActive(today);
 
       return (
         <>
-          <div style={{ marginBottom: 10 }}>
-            <p style={{ fontSize: 12, color: '#71717A' }}>{podSummaryLine(pod)} · {podTasks.length} tasks assigned</p>
+          {/* Header */}
+          <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+            <p style={{ fontSize: 13, color: '#71717A', margin: 0 }}>
+              {podTasks.length} recurring task{podTasks.length === 1 ? '' : 's'} · {podSummaryLine(pod)}
+            </p>
+            {!todayScheduled && (
+              <span style={{ fontSize: 11, color: '#F59E0B', fontWeight: 500 }}>
+                ⚠ Not scheduled today
+              </span>
+            )}
           </div>
 
-          {/* Day header */}
-          <div style={{ display: 'grid', gridTemplateColumns: `160px repeat(14, 38px)`, gap: 3, marginBottom: 4, overflowX: 'auto' }}>
-            <div style={{ fontSize: 11, color: '#A1A1AA', padding: '2px 4px' }}>Task / Tracker</div>
-            {days.map(d => {
-              const isT = d === today;
-              const active = isDayActive(d);
-              return (
-                <div key={d} style={{ textAlign: 'center', fontSize: 10, color: isT ? '#FF6B6B' : (active ? '#18181B' : '#D4D4D8'), fontWeight: isT ? 700 : 400, lineHeight: 1.3 }}>
-                  <div>{WEEK_DAYS_SHORT[(new Date(d).getDay() + 6) % 7]}</div>
-                  <div>{new Date(d).getDate()}</div>
-                </div>
-              );
-            })}
+          {/* Info banner */}
+          <div style={{
+            backgroundColor: '#F0F9FF',
+            border: '1px solid #BAE6FD',
+            borderRadius: 8,
+            padding: '8px 12px',
+            marginBottom: 12,
+            fontSize: 12,
+            color: '#0369A1',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+          }}>
+            <Icons.Ripple className="w-4 h-4" />
+            <strong>Recurring view</strong> inside Task Graph for <strong>{pod.name}</strong>
           </div>
 
-          {podTasks.length === 0 && <p style={{ fontSize: 13, color: '#A1A1AA', padding: '8px 0' }}>No tasks assigned. Use Focus Mode to add tasks to this Pod.</p>}
-
-          {podTasks.map(task => (
-            <div key={task.id}>
-              <div style={{ display: 'grid', gridTemplateColumns: `160px repeat(14, 38px)`, gap: 3, marginBottom: 2, alignItems: 'center' }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#18181B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', padding: '0 4px' }} title={task.content}>{task.content}</div>
-                {days.map(d => {
-                  const active = isDayActive(d);
-                  if (!active) return <div key={d} style={{ textAlign: 'center', fontSize: 12, color: '#E4E4E7' }}>·</div>;
-                  const log = getPodLog(pod.id, task.id, d);
-                  const canEdit = d <= today && d >= addDays(today, -7);
-                  return (
-                    <div key={d} style={{ textAlign: 'center', cursor: canEdit ? 'pointer' : 'default', opacity: d > today ? 0.35 : 1 }} title={d > today ? 'Future dates are locked' : canEdit ? 'Click to cycle: planned → done → missed' : 'Locked (older than 7 days)'} onClick={() => canEdit && setPodLog(pod.id, task.id, d, { status: cycleStatus(log.status) })}>
-                      <span style={{ fontSize: 14 }}>{statusIcon(log.status)}</span>
-                    </div>
-                  );
-                })}
-              </div>
-              {(pod.trackerFields || []).filter(f => f.name).map(field => (
-                <div key={field.id} style={{ display: 'grid', gridTemplateColumns: `160px repeat(14, 38px)`, gap: 3, marginBottom: 2, alignItems: 'center' }}>
-                  <div style={{ fontSize: 11, color: '#71717A', paddingLeft: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>↳ {field.name}</div>
-                  {days.map(d => {
-                    const active = isDayActive(d);
-                    if (!active) return <div key={d} />;
-                    const log = getPodLog(pod.id, task.id, d);
-                    const val = (log.trackerValues || {})[field.id] || '';
-                    const canEdit = d <= today && d >= addDays(today, -7);
-                    if (field.type === 'checkbox') return (
-                      <div key={d} style={{ textAlign: 'center', opacity: d > today ? 0.35 : 1 }}>
-                        <input type="checkbox" checked={val === 'true'} disabled={!canEdit} onChange={e => setPodLog(pod.id, task.id, d, { trackerValues: { ...(log.trackerValues || {}), [field.id]: e.target.checked ? 'true' : 'false' } })} style={{ cursor: canEdit ? 'pointer' : 'default' }} />
-                      </div>
-                    );
-                    return (
-                      <input key={d} type="text" value={val} disabled={!canEdit} onChange={e => setPodLog(pod.id, task.id, d, { trackerValues: { ...(log.trackerValues || {}), [field.id]: e.target.value } })} style={{ width: '100%', fontSize: 10, padding: '2px 3px', border: '1px solid #E4E4E7', borderRadius: 3, textAlign: 'center', backgroundColor: canEdit ? 'white' : '#F9FAFB', color: canEdit ? '#18181B' : '#A1A1AA', opacity: d > today ? 0.35 : 1 }} />
-                    );
-                  })}
-                </div>
+          {podTasks.length === 0 ? (
+            <EmptyState
+              icon={<Icons.Ripple className="w-8 h-8" />}
+              message="No tasks assigned. Use Focus Mode to add tasks to this Ripple."
+            />
+          ) : (
+            <div>
+              {podTasks.map(task => (
+                <RecurringTaskCard key={task.id} task={task} />
               ))}
-              <div style={{ height: 8 }} />
             </div>
-          ))}
-
-          <div style={{ display: 'flex', gap: 12, marginTop: 8, flexWrap: 'wrap' }}>
-            {[['planned','⬜','#D4D4D8'],['completed','✅','#10B981'],['missed','❌','#EF4444']].map(([s,icon,color]) => (
-              <span key={s} style={{ fontSize: 11, color, display: 'flex', alignItems: 'center', gap: 4 }}>{icon} {s}</span>
-            ))}
-            <span style={{ fontSize: 11, color: '#A1A1AA' }}>· = not scheduled · click to cycle · future dates locked · editable: today &amp; past 7 days</span>
-          </div>
+          )}
         </>
       );
     };
+
 
     return (
       <div style={{ display: 'flex', gap: 16, overflow: 'hidden' }}>
@@ -2839,14 +3771,18 @@ function WorkMode({
   const WavesView = () => {
     // Render based on poolStrategyView
     if (poolStrategyView === 'kanban') {
-      // Define kanban lanes locally for waves
+      // Define kanban lanes locally for waves — apply rel sort within each lane
       const waveKanbanLanes = {
-        today: { title: 'Today', color: '#FF6B6B', tasks: [] },
-        future: { title: 'Future', color: '#4299E1', tasks: [] },
-        missed: { title: 'Missed', color: '#F59E0B', tasks: [] },
-        notplanned: { title: 'Not Planned', color: '#A1A1AA', tasks: [] }
+        today:      { title: 'Today',       color: '#FF6B6B', tasks: [] },
+        future:     { title: 'Future',      color: '#4299E1', tasks: [] },
+        missed:     { title: 'Missed',      color: '#F59E0B', tasks: [] },
+        notplanned: { title: 'Not Planned', color: '#A1A1AA', tasks: [] },
       };
       waveTasks.forEach(t => waveKanbanLanes[categorizeByDeadline(t)].tasks.push(t));
+      // Apply relationship sort within each lane
+      Object.values(waveKanbanLanes).forEach(lane => {
+        lane.tasks = sortTasksByRelationship(lane.tasks);
+      });
 
       return (
         <div style={styles.kanbanContainer}>
@@ -2873,13 +3809,13 @@ function WorkMode({
       return <DailyZenView />;
     }
 
-    // Default: List view
+    // Default: List view with relationship sort
     return (
       <div style={styles.listWavesContainer}>
         {waveTasks.length === 0 ? (
           <EmptyState icon={<Icons.Briefcase className="w-8 h-8" />} message="No waves here. Add tasks in Freedom mode, or check Task Graphs." action={{ label: 'Go to Freedom Mode', onClick: onGoToFreedom }} />
         ) : (
-          waveTasks.map(task => <TaskCard key={task.id} task={task} />)
+          sortTasksByRelationship(waveTasks).map(task => <TaskCard key={task.id} task={task} />)
         )}
       </div>
     );
@@ -3062,6 +3998,24 @@ function WorkMode({
                 <option value="kanban">Kanban</option>
                 <option value="workiq">WorkIQ 4×4</option>
                 <option value="dailyzen">DailyZen</option>
+              </select>
+            </>
+          )}
+
+          {/* Level 3: Relationship sort filter */}
+          {(poolStrategyView === 'list' || poolStrategyView === 'kanban') && (
+            <>
+              <span style={{ ...styles.workTitleText, marginLeft: 8, color: '#A1A1AA' }}>sort</span>
+              <select
+                value={relSort}
+                onChange={e => setRelSort(e.target.value)}
+                style={{ ...styles.viewSelector, borderColor: relSort !== 'default' ? '#8B5CF6' : undefined, color: relSort !== 'default' ? '#7C3AED' : undefined }}
+              >
+                <option value="default">Default</option>
+                <option value="blocks">⏸️ Blockers first</option>
+                <option value="pairs_with">🔗 Paired first</option>
+                <option value="enables">💡 Enablers first</option>
+                <option value="results_in">🔀 Resultants first</option>
               </select>
             </>
           )}
@@ -3345,8 +4299,78 @@ function RelationshipGraph({ pool, tasks, allTasks, relationships, onTaskClick }
             <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
               <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#E5E7EB" strokeWidth="0.5" opacity="0.5" />
             </pattern>
+            {/* Arrow markers — blocks and results_in only (enables has no arrow, pairs_with is bidirectional) */}
+            <marker id="arrow-blocks" markerWidth="10" markerHeight="7" refX="20" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#6366F1" />
+            </marker>
+            <marker id="arrow-results_in" markerWidth="10" markerHeight="7" refX="20" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#8B5CF6" />
+            </marker>
+            <marker id="arrow-pairs_fwd" markerWidth="10" markerHeight="7" refX="20" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#10B981" />
+            </marker>
+            <marker id="arrow-pairs_bwd" markerWidth="10" markerHeight="7" refX="20" refY="3.5" orient="auto-start-reverse">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#10B981" />
+            </marker>
           </defs>
           <rect width="800" height="500" fill="url(#grid)" />
+
+          {/* Pairs With group rectangles — rendered BEHIND everything else */}
+          {(() => {
+            // Find all transitively connected pairs_with clusters
+            const pairsRels = relationships.filter(r => migrateRelationshipType(r.type) === 'pairs_with');
+            if (pairsRels.length === 0) return null;
+
+            // Build adjacency for pairs_with
+            const adj = {};
+            pairsRels.forEach(r => {
+              if (!adj[r.fromTaskId]) adj[r.fromTaskId] = new Set();
+              if (!adj[r.toTaskId]) adj[r.toTaskId] = new Set();
+              adj[r.fromTaskId].add(r.toTaskId);
+              adj[r.toTaskId].add(r.fromTaskId);
+            });
+
+            // BFS to find connected components
+            const visited = new Set();
+            const clusters = [];
+            const allNodes = Object.keys(adj);
+            allNodes.forEach(nodeId => {
+              if (visited.has(nodeId)) return;
+              const cluster = [];
+              const queue = [nodeId];
+              while (queue.length) {
+                const cur = queue.shift();
+                if (visited.has(cur)) continue;
+                visited.add(cur);
+                cluster.push(cur);
+                (adj[cur] || new Set()).forEach(n => { if (!visited.has(n)) queue.push(n); });
+              }
+              if (cluster.length > 1) clusters.push(cluster);
+            });
+
+            return clusters.map((cluster, ci) => {
+              const pts = cluster.map(id => currentPositions[id]).filter(Boolean);
+              if (pts.length < 2) return null;
+              const xs = pts.map(p => p.x);
+              const ys = pts.map(p => p.y);
+              const pad = 48;
+              const x = Math.min(...xs) - pad;
+              const y = Math.min(...ys) - pad;
+              const w = Math.max(...xs) - Math.min(...xs) + pad * 2;
+              const h = Math.max(...ys) - Math.min(...ys) + pad * 2;
+              return (
+                <rect
+                  key={`cluster-${ci}`}
+                  x={x} y={y} width={w} height={h}
+                  rx={14} ry={14}
+                  fill="#10B98110"
+                  stroke="#10B981"
+                  strokeWidth="1.5"
+                  strokeDasharray="6 3"
+                />
+              );
+            });
+          })()}
 
           {/* Relationship lines */}
           {relationships.map((rel, idx) => {
@@ -3354,67 +4378,86 @@ function RelationshipGraph({ pool, tasks, allTasks, relationships, onTaskClick }
             const to = currentPositions[rel.toTaskId];
             if (!from || !to) return null;
 
-            const rt = RELATIONSHIP_TYPES.find(x => x.key === rel.type);
+            const migratedType = migrateRelationshipType(rel.type);
+            const rt = RELATIONSHIP_TYPES.find(x => x.key === migratedType);
             const isConnected = hoveredNode && (rel.fromTaskId === hoveredNode || rel.toTaskId === hoveredNode);
             const isDimmed = hoveredNode && !isConnected;
 
-            // Calculate arrow positions
             const dx = to.x - from.x;
             const dy = to.y - from.y;
             const len = Math.sqrt(dx * dx + dy * dy) || 1;
             const nx = dx / len;
             const ny = dy / len;
+            const nodeW = 60; const nodeH = 20;
+            const startX = from.x + nx * nodeW * 0.5;
+            const startY = from.y + ny * nodeH * 0.5;
+            const endX = to.x - nx * nodeW * 0.5;
+            const endY = to.y - ny * nodeH * 0.5;
 
-            // Offset for text node boxes (approximate)
-            const nodeWidth = 60;
-            const nodeHeight = 20;
-            const startX = from.x + nx * nodeWidth * 0.5;
-            const startY = from.y + ny * nodeHeight * 0.5;
-            const endX = to.x - nx * nodeWidth * 0.5;
-            const endY = to.y - ny * nodeHeight * 0.5;
+            const midX = (startX + endX) / 2;
+            const midY = (startY + endY) / 2 - 6;
+            const strokeW = isConnected ? 3 : 2;
+            const color = rt?.color || '#94A3B8';
 
+            if (migratedType === 'blocks') {
+              return (
+                <g key={idx} opacity={isDimmed ? 0.15 : 1}>
+                  <line x1={startX} y1={startY} x2={endX} y2={endY}
+                    stroke={color} strokeWidth={strokeW} markerEnd="url(#arrow-blocks)" />
+                  <text x={midX} y={midY} fill={color} fontSize="10" fontWeight="500" textAnchor="middle" style={{ pointerEvents: 'none' }}>
+                    {rt?.icon} {rt?.label}
+                  </text>
+                </g>
+              );
+            }
+
+            if (migratedType === 'enables') {
+              return (
+                <g key={idx} opacity={isDimmed ? 0.15 : 1}>
+                  <line x1={startX} y1={startY} x2={endX} y2={endY}
+                    stroke={color} strokeWidth={strokeW} strokeDasharray="7 4" />
+                  {/* No arrowhead */}
+                  <text x={midX} y={midY} fill={color} fontSize="10" fontWeight="500" textAnchor="middle" style={{ pointerEvents: 'none' }}>
+                    {rt?.icon} {rt?.label}
+                  </text>
+                </g>
+              );
+            }
+
+            if (migratedType === 'pairs_with') {
+              return (
+                <g key={idx} opacity={isDimmed ? 0.15 : 1}>
+                  <line x1={startX} y1={startY} x2={endX} y2={endY}
+                    stroke={color} strokeWidth={strokeW}
+                    markerEnd="url(#arrow-pairs_fwd)"
+                    markerStart="url(#arrow-pairs_bwd)" />
+                  <text x={midX} y={midY} fill={color} fontSize="10" fontWeight="500" textAnchor="middle" style={{ pointerEvents: 'none' }}>
+                    {rt?.icon} {rt?.label}
+                  </text>
+                </g>
+              );
+            }
+
+            if (migratedType === 'results_in') {
+              return (
+                <g key={idx} opacity={isDimmed ? 0.15 : 1}>
+                  <line x1={startX} y1={startY} x2={endX} y2={endY}
+                    stroke={color} strokeWidth={strokeW} markerEnd="url(#arrow-results_in)" />
+                  <text x={midX} y={midY} fill={color} fontSize="10" fontWeight="500" textAnchor="middle" style={{ pointerEvents: 'none' }}>
+                    {rt?.icon} {rt?.label}
+                  </text>
+                </g>
+              );
+            }
+
+            // Fallback — solid line
             return (
               <g key={idx} opacity={isDimmed ? 0.15 : 1}>
-                <line
-                  x1={startX}
-                  y1={startY}
-                  x2={endX}
-                  y2={endY}
-                  stroke={rt?.color || '#94A3B8'}
-                  strokeWidth={isConnected ? 3 : 2}
-                  markerEnd={`url(#arrow-${rel.type})`}
-                />
-                <text
-                  x={(startX + endX) / 2}
-                  y={(startY + endY) / 2 - 6}
-                  fill={rt?.color || '#71717A'}
-                  fontSize="10"
-                  fontWeight="500"
-                  textAnchor="middle"
-                  style={{ pointerEvents: 'none' }}
-                >
-                  {rt?.icon} {rt?.label}
-                </text>
+                <line x1={startX} y1={startY} x2={endX} y2={endY}
+                  stroke={color} strokeWidth={strokeW} markerEnd="url(#arrow-blocks)" />
               </g>
             );
           })}
-
-          {/* Arrow markers for each relationship type */}
-          <defs>
-            {RELATIONSHIP_TYPES.map(rt => (
-              <marker
-                key={rt.key}
-                id={`arrow-${rt.key}`}
-                markerWidth="10"
-                markerHeight="7"
-                refX="20"
-                refY="3.5"
-                orient="auto"
-              >
-                <polygon points="0 0, 10 3.5, 0 7" fill={rt.color} />
-              </marker>
-            ))}
-          </defs>
 
           {/* Task nodes - text only, no circles */}
           {tasks.map(task => {
@@ -3473,12 +4516,19 @@ function RelationshipGraph({ pool, tasks, allTasks, relationships, onTaskClick }
         </svg>
       </div>
 
-      <div style={{ display: 'flex', gap: 12, marginTop: 12, flexWrap: 'wrap' }}>
-        {RELATIONSHIP_TYPES.map(rt => (
-          <span key={rt.key} style={{ fontSize: 11, color: rt.color, display: 'flex', alignItems: 'center', gap: 4 }}>
-            {rt.icon} {rt.label}
-          </span>
-        ))}
+      <div style={{ display: 'flex', gap: 16, marginTop: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        <span style={{ fontSize: 11, color: '#6366F1', display: 'flex', alignItems: 'center', gap: 4 }}>
+          ⏸️ Blocks <span style={{ letterSpacing: -1 }}>——→</span>
+        </span>
+        <span style={{ fontSize: 11, color: '#10B981', display: 'flex', alignItems: 'center', gap: 4 }}>
+          🔗 Pairs With <span style={{ letterSpacing: -1 }}>←——→</span>
+        </span>
+        <span style={{ fontSize: 11, color: '#F59E0B', display: 'flex', alignItems: 'center', gap: 4 }}>
+          💡 Enables <span style={{ letterSpacing: 1 }}>╌╌╌</span>
+        </span>
+        <span style={{ fontSize: 11, color: '#8B5CF6', display: 'flex', alignItems: 'center', gap: 4 }}>
+          🔀 Results Either In <span style={{ letterSpacing: -1 }}>——→</span>
+        </span>
         <span style={{ fontSize: 11, color: '#A1A1AA' }}>· Scroll to zoom · Drag to pan · Drag node to move</span>
       </div>
     </div>

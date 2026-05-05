@@ -2,6 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import InvestorLanding from './InvestorLanding.jsx';
 import OT2App from './OT2_v3_Pool_Pod_Blink.jsx';
 import OT2StressTest from './OT2_StressTest.jsx';
+import OT2Landing from './mkt-ot2-landing.jsx';
+import OT2Blog from './mkt-ot2-blog.jsx';
+import BlogCMSEnhanced from './mkt-ot2-blog-cms-enhanced.jsx';
 
 // ============================================================================
 // 🔑 ACCESS CODE — change before sharing with new investor groups
@@ -113,12 +116,166 @@ function DemoTopBar({ label, onBack }) {
 }
 
 // ============================================================================
-// ROOT APP — gate → landing → demo
+// URL ROUTING HELPER
+// ============================================================================
+function getCurrentPath() {
+  const path = window.location.pathname;
+  
+  // Handle directory-based URLs
+  if (path === '/ot2/' || path === '/ot2' || path.endsWith('/home')) return 'home';
+  if (path.endsWith('/blog')) return 'blog';
+  if (path.endsWith('/admin')) return 'admin';
+  if (path.endsWith('/app/') || path === '/ot2/app') return 'app';
+  
+  return 'home'; // default to home
+}
+
+// ============================================================================
+// PUBLIC NAVIGATION BAR
+// ============================================================================
+function PublicNavBar() {
+  const currentPath = getCurrentPath();
+  
+  return (
+    <div style={{ 
+      position: 'sticky', 
+      top: 0, 
+      zIndex: 100, 
+      background: 'rgba(255, 255, 255, 0.95)', 
+      backdropFilter: 'blur(10px)', 
+      borderBottom: '1px solid rgba(0, 0, 0, 0.05)', 
+      padding: '1rem 2rem' 
+    }}>
+      <div style={{ 
+        maxWidth: '1200px', 
+        margin: '0 auto', 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center' 
+      }}>
+        <div style={{ 
+          fontSize: '24px', 
+          fontWeight: 500, 
+          background: 'linear-gradient(135deg, #0369a1, #0891b2)', 
+          WebkitBackgroundClip: 'text', 
+          WebkitTextFillColor: 'transparent', 
+          backgroundClip: 'text',
+          letterSpacing: '-1px',
+          cursor: 'pointer'
+        }} onClick={() => window.location.href = '/ot2/'}>
+          OT²
+        </div>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+          <a 
+            href="/ot2/" 
+            style={{ 
+              color: currentPath === 'home' ? '#0369a1' : '#0891b2', 
+              textDecoration: 'none', 
+              fontWeight: 500, 
+              transition: 'color 0.3s ease',
+              borderBottom: currentPath === 'home' ? '2px solid #0369a1' : 'none',
+              paddingBottom: '2px'
+            }}
+          >
+            Home
+          </a>
+          <a 
+            href="/ot2/blog" 
+            style={{ 
+              color: currentPath === 'blog' ? '#0369a1' : '#0891b2', 
+              textDecoration: 'none', 
+              fontWeight: 500, 
+              transition: 'color 0.3s ease',
+              borderBottom: currentPath === 'blog' ? '2px solid #0369a1' : 'none',
+              paddingBottom: '2px'
+            }}
+          >
+            Blog
+          </a>
+          <a 
+            href="/ot2/app/" 
+            style={{ 
+              display: 'inline-block', 
+              padding: '0.75rem 1.5rem', 
+              background: '#0891b2', 
+              color: 'white', 
+              borderRadius: '6px', 
+              textDecoration: 'none', 
+              fontWeight: 500, 
+              transition: 'all 0.3s ease' 
+            }}
+            onMouseEnter={(e) => { 
+              e.target.style.background = '#0369a1'; 
+              e.target.style.transform = 'translateY(-2px)'; 
+            }}
+            onMouseLeave={(e) => { 
+              e.target.style.background = '#0891b2'; 
+              e.target.style.transform = 'translateY(0)'; 
+            }}
+          >
+            Open OT² →
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// ROOT APP — URL-based routing with public/private access
 // ============================================================================
 export default function App() {
   const [unlocked, setUnlocked] = useState(() => sessionStorage.getItem(SESSION_KEY) === '1');
-  const [view, setView]         = useState('landing'); // 'landing' | 'app' | 'stress'
+  const [view, setView] = useState('landing'); // for investor demo navigation
+  const [currentPath, setCurrentPath] = useState(getCurrentPath());
 
+  // Update path when URL changes
+  useEffect(() => {
+    const handlePopState = () => setCurrentPath(getCurrentPath());
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // Public pages - no access code required
+  if (currentPath === 'home') {
+    return (
+      <>
+        <PublicNavBar />
+        <div style={{ paddingTop: 0 }}>
+          <OT2Landing />
+        </div>
+      </>
+    );
+  }
+
+  if (currentPath === 'blog') {
+    return (
+      <>
+        <PublicNavBar />
+        <div style={{ paddingTop: 0 }}>
+          <OT2Blog />
+        </div>
+      </>
+    );
+  }
+
+  if (currentPath === 'admin') {
+    return <BlogCMSEnhanced />;
+  }
+
+  // App access - requires access code
+  if (currentPath === 'app') {
+    if (!unlocked) return <GateScreen onUnlock={() => setUnlocked(true)} />;
+    
+    return (
+      <>
+        <DemoTopBar label="OT² v3 — Live Feature Demo" onBack={() => window.location.href = '/ot2/'} />
+        <div style={{ paddingTop: 41 }}><OT2App /></div>
+      </>
+    );
+  }
+
+  // Fallback to investor demo for legacy routes
   if (!unlocked) return <GateScreen onUnlock={() => setUnlocked(true)} />;
 
   if (view === 'app') return (
